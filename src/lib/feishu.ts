@@ -1,27 +1,12 @@
 /**
- * Feishu OAuth + Bitable client.
- * All credentials read from macOS Keychain at runtime, never hardcoded.
+ * Feishu Bitable client.
+ * App credentials: 本地走 .env.local, Vercel 云端走 dashboard 环境变量.
+ * 这样部署后能直接跑, 不依赖 macOS Keychain.
  */
-import { execSync } from "node:child_process";
-
-const KEYCHAIN_SERVICE_ID = "card-studio-feishu-app-id";
-const KEYCHAIN_SERVICE_SECRET = "card-studio-feishu-app-secret";
-
-function readKeychain(service: string): string {
-  try {
-    const out = execSync(
-      `security find-generic-password -a "card-studio-feishu" -s "${service}" -w`,
-      { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }
-    ).trim();
-    return out;
-  } catch {
-    return "";
-  }
-}
 
 export function getAppCredentials() {
-  const appId = readKeychain("card-studio-feishu-app-id");
-  const appSecret = readKeychain("card-studio-feishu-app-secret");
+  const appId = process.env.FEISHU_APP_ID || "";
+  const appSecret = process.env.FEISHU_APP_SECRET || "";
   return { appId, appSecret };
 }
 

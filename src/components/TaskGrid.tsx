@@ -14,10 +14,10 @@ export function TaskGrid({ tasks, onOpen }: { tasks: Task[]; onOpen: (id: number
   if (tasks.length === 0) {
     return (
       <div className="border border-dashed border-creamDeep p-16 text-center">
-        <p className="eyebrow text-inkSoft">EMPTY LIBRARY</p>
-        <p className="font-serif text-[20px] mt-3">No tasks yet</p>
+        <p className="eyebrow text-inkSoft">EMPTY LIBRARY · 空库</p>
+        <p className="font-serif text-[20px] mt-3">暂无任务</p>
         <p className="text-inkSoft text-[14px] mt-2">
-          Sync one in via <code className="font-mono text-brick">yang-bitable-vault</code> or click REFRESH.
+          点「+ NEW TASK 新建」或在顶部搜索框粘任务名; 也可通过 <code className="font-mono text-brick">yang-bitable-vault</code> skill 同步。
         </p>
       </div>
     );

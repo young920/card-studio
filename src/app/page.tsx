@@ -75,9 +75,9 @@ export default function HomePage() {
             <span className="font-serif text-[18px] tracking-tight">Card Studio</span>
           </div>
           <nav className="flex items-center gap-6 text-eyebrow">
-            <a href="#library" className="hover:text-brick transition">LIBRARY</a>
-            <a href="#guide" className="hover:text-brick transition">GUIDE</a>
-            <a href="#install" className="hover:text-brick transition">INSTALL</a>
+            <a href="#library" className="hover:text-brick transition">LIBRARY · 卡片库</a>
+            <a href="#guide" className="hover:text-brick transition">GUIDE · 使用指南</a>
+            <a href="#install" className="hover:text-brick transition">INSTALL · 安装</a>
           </nav>
           <div className="flex items-center gap-3">
             <input
@@ -88,10 +88,10 @@ export default function HomePage() {
               className="bg-creamLight border border-ink px-3 py-1.5 text-[13px] font-mono w-48"
             />
             <button onClick={handleCreate} disabled={creating || !newName.trim()} className="btn-primary text-[12px]">
-              {creating ? "…" : "+ NEW TASK"}
+              {creating ? "提交中…" : "+ 新建任务"}
             </button>
             <button onClick={refresh} className="btn-ghost">
-              ⟳ REFRESH
+              ⟳ 刷新
             </button>
           </div>
         </div>
@@ -103,27 +103,27 @@ export default function HomePage() {
         <div>
           <p className="eyebrow mb-4">—— ALL TASKS · 全部任务</p>
           <h1 className="h-display">
-            A back-of-house studio for your info-graphic cards.
+            信息图卡的幕后工作台
           </h1>
           <p className="mt-6 text-inkSoft max-w-md leading-relaxed">
-            Browse every project. Edit copy. Upload new cards. Download the bundle. Sync directly to 飞书 bitable.
+            浏览每个项目、编辑文案、上传新卡、打包下载，一键同步到飞书多维表格。
           </p>
         </div>
 
         <div className="border border-creamDeep bg-creamLight p-8 skew-card">
-          <p className="eyebrow text-brick mb-3">— STATUS</p>
+          <p className="eyebrow text-brick mb-3">— STATUS · 状态</p>
           <div className="grid grid-cols-3 gap-6 mt-4">
             <div>
               <div className="font-serif text-[56px] leading-none">{tasks?.length ?? "—"}</div>
-              <p className="eyebrow mt-2">TASKS</p>
+              <p className="eyebrow mt-2">TASKS · 任务</p>
             </div>
             <div>
               <div className="font-serif text-[56px] leading-none">{totalCards || "—"}</div>
-              <p className="eyebrow mt-2">CARDS</p>
+              <p className="eyebrow mt-2">CARDS · 卡片</p>
             </div>
             <div>
               <div className="font-serif text-[24px] leading-none mt-3">{lastUpdate}</div>
-              <p className="eyebrow mt-2">LAST UPDATE</p>
+              <p className="eyebrow mt-2">LAST UPDATE · 最近更新</p>
             </div>
           </div>
         </div>
@@ -132,7 +132,7 @@ export default function HomePage() {
       {err && (
         <div className="mx-8 md:mx-16 mb-8 p-6 border-2 border-brick bg-creamLight">
           <p className="font-mono text-[13px] text-brickDeep">⚠ {err}</p>
-          <p className="text-inkSoft text-[13px] mt-2">Try clicking ⟳ REFRESH, or check /api/health.</p>
+          <p className="text-inkSoft text-[13px] mt-2">点 ⟳ REFRESH 重试，或查 /api/health 健康检查。</p>
         </div>
       )}
 
