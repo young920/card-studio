@@ -113,11 +113,11 @@ async function larkApi(method: string, path: string, body?: any, identity: "user
 }
 
 /* ---- Bitable REST helpers ---- */
-async function bitable(path: string, init: { method?: string; body?: any } = {}) {
+async function bitable(path: string, init: { method?: string; body?: any; identity?: "user" | "bot" } = {}) {
   const method = init.method || "GET";
   // path 已经包含 /apps/.../, 不需要再加 /bitable/v1 前缀
   const fullPath = `/open-apis/bitable/v1${path}`;
-  const json: any = await larkApi(method, fullPath, init.body);
+  const json: any = await larkApi(method, fullPath, init.body, init.identity || "bot");
   if (json.code !== undefined && json.code !== 0) {
     throw new Error(`Bitable ${path} failed: ${json.code} ${json.msg}`);
   }
@@ -156,21 +156,21 @@ export async function getAttachmentDownloadUrl(recordId: string, fileToken: stri
 export async function updateCardFields(recordId: string, fields: Record<string, any>): Promise<void> {
   await bitable(
     `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_GRAPHS}/records/${recordId}`,
-    { method: "PUT", body: { fields } }
+    { method: "PUT", body: { fields }, identity: "user" }
   );
 }
 
 export async function updateCopyFields(recordId: string, fields: Record<string, any>): Promise<void> {
   await bitable(
     `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_COPY}/records/${recordId}`,
-    { method: "PUT", body: { fields } }
+    { method: "PUT", body: { fields }, identity: "user" }
   );
 }
 
 export async function createCard(fields: Record<string, any>): Promise<{ record_id: string }> {
   const data = await bitable(
     `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_GRAPHS}/records`,
-    { method: "POST", body: { fields } }
+    { method: "POST", body: { fields }, identity: "user" }
   );
   return { record_id: data.record.record_id };
 }
@@ -178,7 +178,7 @@ export async function createCard(fields: Record<string, any>): Promise<{ record_
 export async function createCopy(fields: Record<string, any>): Promise<{ record_id: string }> {
   const data = await bitable(
     `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_COPY}/records`,
-    { method: "POST", body: { fields } }
+    { method: "POST", body: { fields }, identity: "user" }
   );
   return { record_id: data.record.record_id };
 }
@@ -186,14 +186,14 @@ export async function createCopy(fields: Record<string, any>): Promise<{ record_
 export async function deleteCard(recordId: string): Promise<void> {
   await bitable(
     `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_GRAPHS}/records/${recordId}`,
-    { method: "DELETE" }
+    { method: "DELETE", identity: "user" }
   );
 }
 
 export async function deleteCopy(recordId: string): Promise<void> {
   await bitable(
     `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_COPY}/records/${recordId}`,
-    { method: "DELETE" }
+    { method: "DELETE", identity: "user" }
   );
 }
 

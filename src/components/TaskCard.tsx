@@ -20,7 +20,7 @@ export function TaskCard({ task, index, onOpen }: { task: Task; index: number; o
   async function handleDownload(e: React.MouseEvent) {
     e.stopPropagation();
     setMenuOpen(false);
-    window.location.href = `/api/tasks/${task.task_id}/download`;
+    window.location.href = `/api/tasks/${task.task_id}/zip`;
   }
 
   async function handleCopyText(e: React.MouseEvent) {
