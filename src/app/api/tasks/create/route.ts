@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
         卡号: "card-00",
         项目名: projectName,
         主题一句话: `${projectName} · 封面 (待上传)`,
-        风格 Mode: styleMode,
+        "风格 Mode": styleMode,
         状态: "占位中",
         创建日期: Date.now(),
       });

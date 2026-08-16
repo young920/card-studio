@@ -199,7 +199,7 @@ export default function HomePage() {
                 ↻ 重新连接飞书
               </button>
               <p className="text-inkSoft text-[12px] mt-3 font-mono">
-                或手动跑：`lark-cli auth login --scope "bitable:app base:app:read base:record:read"`
+                或手动跑：`lark-cli auth login --scope &quot;bitable:app base:app:read base:record:read&quot;`
               </p>
             </div>
           ) : (
