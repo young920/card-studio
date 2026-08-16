@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { TaskModal } from "@/components/TaskModal";
 import { TaskGrid } from "@/components/TaskGrid";
 
@@ -15,16 +15,25 @@ interface Task {
 export default function HomePage() {
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [errKind, setErrKind] = useState<"network" | "auth" | "other" | null>(null);
   const [openTaskId, setOpenTaskId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newStyle, setNewStyle] = useState("Editorial Weekly");
+  const [search, setSearch] = useState("");
 
   async function refresh() {
     try {
       setErr(null);
+      setErrKind(null);
       const r = await fetch("/api/tasks", { cache: "no-store" });
       const j = await r.json();
-      if (!j.ok) throw new Error(j.error);
+      if (!j.ok) {
+        const msg = j.error || "未知错误";
+        const kind = msg.includes("user_access_token") || msg.includes("credentials") || msg.includes("scope") ? "auth" : "network";
+        setErrKind(kind);
+        throw new Error(msg);
+      }
       setTasks(j.tasks);
     } catch (e: any) {
       setErr(e.message);
@@ -42,7 +51,10 @@ export default function HomePage() {
       const r = await fetch("/api/tasks/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_name: newName.trim() }),
+        body: JSON.stringify({
+          project_name: newName.trim(),
+          style_mode: newStyle,
+        }),
       });
       const j = await r.json();
       if (!j.ok) throw new Error(j.error);
@@ -61,13 +73,28 @@ export default function HomePage() {
     ? new Date(tasks[0].cards[0].fields.创建日期).toISOString().slice(0, 10)
     : "—";
 
+  const filteredTasks = useMemo(() => {
+    if (!tasks) return [];
+    if (!search.trim()) return tasks;
+    const q = search.trim().toLowerCase();
+    return tasks.filter((t) => {
+      if (t.project_name.toLowerCase().includes(q)) return true;
+      if (String(t.task_id).includes(q)) return true;
+      for (const c of t.cards) {
+        if (c.fields?.主题一句话?.toLowerCase().includes(q)) return true;
+        if (c.fields?.ID?.toLowerCase().includes(q)) return true;
+      }
+      return false;
+    });
+  }, [tasks, search]);
+
   const openTask = tasks?.find((t) => t.task_id === openTaskId);
 
   return (
     <main className="min-h-screen">
       {/* Top header */}
       <header className="px-8 md:px-16 pt-8 pb-6">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-brick rounded-sm flex items-center justify-center">
               <span className="text-cream font-mono text-[12px] font-bold">CS</span>
@@ -85,8 +112,23 @@ export default function HomePage() {
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleCreate()}
               placeholder="新任务项目名…"
-              className="bg-creamLight border border-ink px-3 py-1.5 text-[13px] font-mono w-48"
+              className="bg-creamLight border border-ink px-3 py-1.5 text-[13px] font-mono w-44"
             />
+            <select
+              value={newStyle}
+              onChange={(e) => setNewStyle(e.target.value)}
+              className="bg-creamLight border border-ink px-2 py-1.5 text-[13px] font-mono"
+              title="选风格 Mode"
+            >
+              <option>Editorial Weekly</option>
+              <option>Editorial Magazine</option>
+              <option>Swiss International</option>
+              <option>Dianyunstyle</option>
+              <option>Neo-Brutalist Yingce</option>
+              <option>Newspaper Weekly</option>
+              <option>Dialogue / Interview</option>
+              <option>Paper Brief</option>
+            </select>
             <button onClick={handleCreate} disabled={creating || !newName.trim()} className="btn-primary text-[12px]">
               {creating ? "提交中…" : "+ 新建任务"}
             </button>
@@ -129,27 +171,65 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* 错误横幅 (含 OAuth 失效检测) */}
       {err && (
-        <div className="mx-8 md:mx-16 mb-8 p-6 border-2 border-brick bg-creamLight">
-          <p className="font-mono text-[13px] text-brickDeep">⚠ {err}</p>
-          <p className="text-inkSoft text-[13px] mt-2">点 ⟳ REFRESH 重试，或查 /api/health 健康检查。</p>
+        <div className={`mx-8 md:mx-16 mb-8 p-6 border-2 ${errKind === "auth" ? "border-brick bg-creamLight" : "border-ink bg-creamLight"}`}>
+          <p className="font-mono text-[13px] text-brickDeep">
+            {errKind === "auth" ? "⚠ 飞书连接失效 · " : "⚠ "}{err}
+          </p>
+          {errKind === "auth" ? (
+            <div className="mt-3">
+              <p className="text-inkSoft text-[13px] mb-3">
+                需要重新授权飞书访问权限（之前 OAuth 申请的 scope 不够覆盖 bitable API）。
+              </p>
+              <button
+                onClick={async () => {
+                  alert("正在发起飞书重新授权...");
+                  // 触发 device flow
+                  try {
+                    const r = await fetch("/api/auth/restart", { method: "POST" });
+                    const j = await r.json();
+                    if (j.ok && j.verification_url) {
+                      window.open(j.verification_url, "_blank");
+                    }
+                  } catch (e) {}
+                }}
+                className="btn-primary text-[12px]"
+              >
+                ↻ 重新连接飞书
+              </button>
+              <p className="text-inkSoft text-[12px] mt-3 font-mono">
+                或手动跑：`lark-cli auth login --scope "bitable:app base:app:read base:record:read"`
+              </p>
+            </div>
+          ) : (
+            <p className="text-inkSoft text-[13px] mt-2">点 ⟳ REFRESH 重试，或查 <a href="/api/health" className="underline">/api/health</a>。</p>
+          )}
         </div>
       )}
 
       {/* Library */}
       <section id="library" className="px-8 md:px-16 pb-24">
-        <div className="flex items-end justify-between mb-8">
+        <div className="flex items-end justify-between mb-8 gap-4">
           <div>
             <p className="eyebrow mb-2">—— LIBRARY</p>
             <h2 className="h-section">All tasks</h2>
           </div>
-          <p className="text-inkSoft text-[13px]">
-            {tasks ? `${tasks.length} projects · sorted by newest` : "loading..."}
-          </p>
+          <div className="flex items-center gap-3">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="🔍 搜索项目名 / task_id / 卡号 / 主题…"
+              className="bg-creamLight border border-ink px-3 py-1.5 text-[13px] font-mono w-72"
+            />
+            <p className="text-inkSoft text-[13px] whitespace-nowrap">
+              {tasks ? `${filteredTasks.length} / ${tasks.length}` : "loading..."}
+            </p>
+          </div>
         </div>
 
         <TaskGrid
-          tasks={tasks || []}
+          tasks={filteredTasks}
           onOpen={(tid) => setOpenTaskId(tid)}
         />
       </section>

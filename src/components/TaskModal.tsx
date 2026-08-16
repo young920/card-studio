@@ -46,6 +46,7 @@ export function TaskModal({
   const [editTags, setEditTags] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
 
   // upload state
   const [uploading, setUploading] = useState(false);
@@ -115,6 +116,8 @@ export function TaskModal({
       const j = await r.json();
       if (!j.ok) throw new Error(j.error);
       setEditMode("view");
+      setSavedAt(Date.now());
+      setTimeout(() => setSavedAt(null), 2000);
       onChanged();
     } catch (e: any) {
       setSaveErr(e.message);
@@ -263,6 +266,16 @@ export function TaskModal({
         <div className="md:w-[42%] p-8 overflow-y-auto">
           <div className="flex items-start justify-between mb-6">
             <div className="flex-1">
+              {savedAt && (
+                <div className="mb-2 px-3 py-1.5 bg-ink text-cream text-[11px] font-mono inline-block">
+                  ✓ 已保存 · {new Date(savedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                </div>
+              )}
+              {saveErr && (
+                <div className="mb-2 px-3 py-1.5 bg-brick text-cream text-[11px] font-mono">
+                  ⚠ {saveErr}
+                </div>
+              )}
               <p className="eyebrow text-brick">NO.{String(taskId).padStart(3, "0")} · TASK</p>
               {editMode === "edit-title" ? (
                 <div className="mt-2">
