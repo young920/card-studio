@@ -105,6 +105,24 @@ export default function HomePage() {
             <a href="#library" className="hover:text-brick transition">LIBRARY · 卡片库</a>
             <a href="#guide" className="hover:text-brick transition">GUIDE · 使用指南</a>
             <a href="#install" className="hover:text-brick transition">INSTALL · 安装</a>
+            <button
+              onClick={async () => {
+                const r = await fetch("/api/auth/restart", { method: "POST" });
+                const j = await r.json();
+                if (j.ok) {
+                  const a = document.createElement("a");
+                  a.href = j.verification_url;
+                  a.target = "_blank";
+                  a.click();
+                } else {
+                  alert("重连失败：" + j.error);
+                }
+              }}
+              className="hover:text-brick transition border border-brick px-2 py-1 text-brick"
+              title="飞书 token 失效时点这里重新授权"
+            >
+              ↻ 飞书重连
+            </button>
           </nav>
           <div className="flex items-center gap-3">
             <input

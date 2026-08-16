@@ -101,7 +101,7 @@ export function TaskModal({
   }
 
   function handleDownload() {
-    window.location.href = `/api/tasks/${taskId}/download`;
+    window.location.href = `/api/tasks/${taskId}/zip`;
   }
 
   async function handleSaveTitle() {
@@ -299,9 +299,29 @@ export function TaskModal({
                 <h2 className="font-serif text-[28px] leading-tight mt-2">{copyTitle || projectName || `Task ${taskId}`}</h2>
               )}
             </div>
-            <button onClick={onClose} className="w-9 h-9 hover:bg-creamDeep transition flex items-center justify-center">
-              <span className="font-mono text-[18px]">✕</span>
-            </button>
+            <div className="flex items-center gap-2">
+              {editMode === "view" ? (
+                <>
+                  <button
+                    onClick={() => setEditMode("edit-title")}
+                    className="w-9 h-9 hover:bg-creamDeep transition flex items-center justify-center border border-ink"
+                    title="改项目名"
+                  >
+                    <span className="font-mono text-[16px]">�</span>
+                  </button>
+                  <button
+                    onClick={() => setEditMode("edit-copy")}
+                    className="w-9 h-9 hover:bg-creamDeep transition flex items-center justify-center border border-ink"
+                    title="改文案"
+                  >
+                    <span className="font-mono text-[16px]">✏</span>
+                  </button>
+                </>
+              ) : null}
+              <button onClick={onClose} className="w-9 h-9 hover:bg-creamDeep transition flex items-center justify-center">
+                <span className="font-mono text-[18px]">✕</span>
+              </button>
+            </div>
           </div>
 
           {/* Tags */}
