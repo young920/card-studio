@@ -353,29 +353,56 @@ export function TaskModal({
             </button>
           </div>
 
-          {/* Tags */}
+          {/* Tags + Live Preview */}
           {editMode === "edit-copy" ? (
             <div className="mb-6">
               <p className="eyebrow mb-2">EDIT COPY</p>
-              <input
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                placeholder="标题"
-                className="w-full bg-creamLight border border-ink px-3 py-2 mb-2 font-serif text-[16px]"
-              />
-              <textarea
-                value={editBody}
-                onChange={(e) => setEditBody(e.target.value)}
-                placeholder="总文案（长文不分页）"
-                rows={12}
-                className="w-full bg-creamLight border border-ink px-3 py-2 font-mono text-[12px] leading-relaxed"
-              />
-              <input
-                value={editTags}
-                onChange={(e) => setEditTags(e.target.value)}
-                placeholder="标签（空格分隔）"
-                className="w-full bg-creamLight border border-ink px-3 py-2 mt-2 font-mono text-[12px]"
-              />
+              <div className="grid grid-cols-2 gap-4">
+                {/* Left: edit form */}
+                <div>
+                  <input
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    placeholder="标题"
+                    className="w-full bg-creamLight border border-ink px-3 py-2 mb-2 font-serif text-[16px]"
+                  />
+                  <textarea
+                    value={editBody}
+                    onChange={(e) => setEditBody(e.target.value)}
+                    placeholder="总文案（长文不分页）"
+                    rows={12}
+                    className="w-full bg-creamLight border border-ink px-3 py-2 font-mono text-[12px] leading-relaxed"
+                  />
+                  <input
+                    value={editTags}
+                    onChange={(e) => setEditTags(e.target.value)}
+                    placeholder="标签（空格分隔）"
+                    className="w-full bg-creamLight border border-ink px-3 py-2 mt-2 font-mono text-[12px]"
+                  />
+                </div>
+                {/* Right: live preview */}
+                <div className="border border-creamDeep p-4 bg-terminalBg overflow-y-auto max-h-[50vh]">
+                  <p className="eyebrow mb-2 text-brick">PREVIEW · 实时预览</p>
+                  {editTitle && (
+                    <h3 className="font-serif text-[18px] leading-tight mb-3">{editTitle}</h3>
+                  )}
+                  {editBody && (
+                    <p className="text-[13px] leading-[1.65] whitespace-pre-wrap text-ink">
+                      {editBody}
+                    </p>
+                  )}
+                  {editTags.trim() && (
+                    <div className="flex flex-wrap gap-1.5 mt-3">
+                      {editTags.trim().split(/\s+/).filter(Boolean).map((t) => (
+                        <span key={t} className="px-2 py-0.5 bg-creamLight border border-creamDeep text-[11px] font-mono">{t}</span>
+                      ))}
+                    </div>
+                  )}
+                  {!editTitle && !editBody && !editTags.trim() && (
+                    <p className="text-inkSoft text-[12px] italic">输入内容后这里会实时显示预览…</p>
+                  )}
+                </div>
+              </div>
               <div className="flex gap-2 mt-3">
                 <button onClick={handleSaveCopy} disabled={saving} className="btn-primary text-[12px] py-1.5 px-3">
                   {saving ? "保存中…" : "保存"}

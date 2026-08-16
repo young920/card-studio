@@ -244,6 +244,17 @@ export default function HomePage() {
 
       {/* Library */}
       <section id="library" className="px-8 md:px-16 pb-24">
+        {/* Stats bar */}
+        <div className="flex items-center gap-4 mb-6 px-4 py-3 bg-creamLight border border-creamDeep">
+          <span className="font-mono text-[13px] text-inkSoft">
+            {tasks ? (
+              <>{tasks.length} 个任务 · {totalCards} 张图 · 上次更新 {lastUpdate}</>
+            ) : (
+              "loading…"
+            )}
+          </span>
+        </div>
+
         <div className="flex items-end justify-between mb-8 gap-4">
           <div>
             <p className="eyebrow mb-2">—— LIBRARY</p>
