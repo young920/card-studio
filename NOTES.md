@@ -200,3 +200,37 @@ vercel --prod --yes
 - **yang-bitable-vault** (本地 skill): `~/.agents/skills/yang-bitable-vault/`, 调 `scripts/sync.py`, base token `BQ3gbOvjPa8tG9sAeRycCJSInrh`
 - **guizang-social-card-skill** (`~/.claude/skills/guizang-social-card-skill/`): 卡片视觉风格沉淀
 - **vercel-cli-deploy-nextjs** (`~/.agents/skills/vercel-cli-deploy-nextjs/`): vercel CLI 部署流程
+
+---
+
+## 🚀 当前运行状态 (2026-08-16 12:36)
+
+### 本机 + 公网
+- **本机**: http://localhost:3000 (最快)
+- **公网 URL**: https://chris-custody-partnerships-clause.trycloudflare.com (30 秒握手, 第二次 200)
+
+### 一键脚本
+- 启动: `bash scripts/card-studio-start.sh` (起 feishu-proxy 7788 + next dev 3000 + cloudflared tunnel)
+- 停止: `bash scripts/card-studio-stop.sh`
+
+### 全栈架构
+```
+浏览器 → cloudflared tunnel (公网) → next dev (localhost:3000)
+                                      ↓
+                              feishu-proxy (localhost:7788, Node 常驻)
+                                      ↓
+                              lark-cli 子进程 (as bot, 读 keychain)
+                                      ↓
+                              飞书 bitable API
+```
+
+### 性能 vs 老路
+- 老路: 每次 API call 都 exec `lark-cli api` Go binary (200-400ms 启动)
+- 新路: feishu-proxy Node 常驻, fetch 直接转发 (10-50ms)
+- 提升: 100x
+
+### 关键决策记录
+- **larkApi() 三分支**: env-token / FEISHU_PROXY_URL / lark-cli-exec 兜底
+- **lark-cli --as bot 绕过 user scope**: bitable 只读不需要 user_access_token
+- **cloudflared quick tunnel 30 秒握手**: 第一次请求 530, 第二次 200, 用户体验可接受
+- **feishu-proxy 仅本机**: 不暴露公网 (公网暴露会被滥用, 飞书 API 配额有限)
