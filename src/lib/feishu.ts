@@ -268,6 +268,42 @@ export async function getUserAccessToken(): Promise<string> {
 /**
  * 飞书 drive batch_get_tmp_download_url（不需 recordId，用 file_token 直接拿 2 小时有效下载 URL）
  */
+/** Download attachment as buffer (for zip 资源包)
+ *  用 lark-cli base +record-download-attachment (已知能通, 340KB PNG)
+ */
+export async function getAttachmentBuffer(
+  recordId: string,
+  fileToken: string,
+  fileName: string = "attachment.png"
+): Promise<Buffer> {
+  const { execSync } = await import("child_process");
+  const fs = await import("fs/promises");
+  const path = await import("path");
+  const os = await import("os");
+
+  // 1. lark-cli 下载到项目内 .downloads/ (相对路径约束, 不能跳出 cwd)
+  const tmpDir = path.join(process.cwd(), ".downloads");
+  await fs.mkdir(tmpDir, { recursive: true });
+  const tmpFile = path.join(tmpDir, fileName);
+
+  const cmd = [
+    "lark-cli",
+    "base", "+record-download-attachment",
+    "--base-token", BITABLE_BASE_TOKEN,
+    "--table-id", TABLE_GRAPHS,
+    "--record-id", recordId,
+    "--file-token", fileToken,
+    "--output", path.relative(process.cwd(), tmpFile),
+    "--as", "user",
+  ].join(" ");
+  execSync(cmd, { encoding: "utf-8", cwd: process.cwd() });
+
+  // 2. 读 buffer
+  const buf = await fs.readFile(tmpFile);
+  await fs.unlink(tmpFile).catch(() => {});
+  return buf;
+}
+
 export async function getAttachmentTmpUrl(fileToken: string, userToken: string): Promise<string> {
   const resp = await fetch(`${FEISHU_BASE}/drive/v1/medias/batch_get_tmp_download_url`, {
     method: "POST",
