@@ -48,6 +48,10 @@ export function TaskModal({
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
+  // drag state
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [overIdx, setOverIdx] = useState<number | null>(null);
+
   // upload state
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
@@ -208,6 +212,51 @@ export function TaskModal({
     } finally {
       setUploading(false);
       e.target.value = "";
+    }
+  }
+
+  // --- drag-and-drop handlers ---
+  function handleCardDragStart(e: React.DragEvent, idx: number) {
+    setDragIdx(idx);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(idx));
+  }
+
+  function handleCardDragOver(e: React.DragEvent, idx: number) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (idx !== overIdx) setOverIdx(idx);
+  }
+
+  function handleCardDragEnd() {
+    setDragIdx(null);
+    setOverIdx(null);
+  }
+
+  async function handleCardDrop(e: React.DragEvent, dropIdx: number) {
+    e.preventDefault();
+    if (dragIdx === null || dragIdx === dropIdx) {
+      handleCardDragEnd();
+      return;
+    }
+    // reorder local
+    const reordered = [...cards!];
+    const [moved] = reordered.splice(dragIdx, 1);
+    reordered.splice(dropIdx, 0, moved);
+    setCards(reordered);
+    handleCardDragEnd();
+    // persist to 飞书
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/reorder`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cardIds: reordered.map((c) => c.record_id) }),
+      });
+      const j = await res.json();
+      if (!j.ok) throw new Error(j.error);
+      onChanged();
+    } catch (err: any) {
+      console.error("reorder failed", err);
     }
   }
 
@@ -378,24 +427,40 @@ export function TaskModal({
             </div>
             {uploadErr && <p className="text-brick font-mono text-[11px] mb-2">⚠ {uploadErr}</p>}
             <div className="flex gap-2 overflow-x-auto scroll-hide pb-2">
-              {cards?.map((c, i) => (
-                <div key={c.record_id} className="relative group/thumb">
-                  <button
-                    onClick={() => setActiveIdx(i)}
-                    className={`flex-shrink-0 w-14 h-14 border-2 transition ${
-                      i === activeIdx ? "border-brick" : "border-creamDeep hover:border-ink"
-                    }`}
-                  >
-                    <img src={c.url} alt={c.card_no} className="w-full h-full object-cover" />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteCard(c.record_id)}
-                    className="absolute -top-1 -right-1 w-4 h-4 bg-brick text-cream text-[10px] rounded-full opacity-0 group-hover/thumb:opacity-100"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
+              {cards?.map((c, i) => {
+                const isDragging = dragIdx === i;
+                const isOver = overIdx === i && dragIdx !== null && dragIdx !== i;
+                return (
+                  <div key={c.record_id} className="relative group/thumb">
+                    <button
+                      onClick={() => setActiveIdx(i)}
+                      draggable
+                      onDragStart={(e) => handleCardDragStart(e, i)}
+                      onDragOver={(e) => handleCardDragOver(e, i)}
+                      onDragEnd={handleCardDragEnd}
+                      onDrop={(e) => handleCardDrop(e, i)}
+                      className={`flex-shrink-0 w-14 h-14 border-2 transition cursor-grab
+                        ${isDragging
+                          ? "opacity-40 border-dashed border-ink"
+                          : isOver
+                            ? "border-brick bg-brick/10"
+                            : i === activeIdx
+                              ? "border-brick"
+                              : "border-creamDeep hover:border-ink"
+                        }
+                      `}
+                    >
+                      <img src={c.url} alt={c.card_no} className="w-full h-full object-cover" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteCard(c.record_id)}
+                      className="absolute -top-1 -right-1 w-4 h-4 bg-brick text-cream text-[10px] rounded-full opacity-0 group-hover/thumb:opacity-100"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                );
+              })}
             </div>
             {active && (
               <p className="text-[12px] text-inkSoft mt-2 italic">{active.card_no} · {active.topic}</p>
