@@ -3,6 +3,7 @@
  * App credentials: 本地走 .env.local, Vercel 云端走 dashboard 环境变量.
  * 这样部署后能直接跑, 不依赖 macOS Keychain.
  */
+import { execSync } from "node:child_process";
 
 export function getAppCredentials() {
   const appId = process.env.FEISHU_APP_ID || "";
@@ -188,26 +189,20 @@ export function groupIntoTasks(graphCards: Card[], copyCards: Card[]): Task[] {
   return [...byTask.values()].sort((a, b) => b.task_id - a.task_id);
 }
 /**
- * 拿 user_access_token —— 优先从 macOS Keychain 读 card-studio-feishu-user-token，
- * 否则调 lark-cli 内置 token（通过 exec 调用），最后 fallback 跑 lark-cli auth token 子命令。
+ * 拿 user_access_token —— Vercel 云端走 env (FEISHU_USER_TOKEN),
+ * 本地开发走 lark-cli auth token (exec 调用).
  */
 export async function getUserAccessToken(): Promise<string> {
-  // 方案 A: Keychain
-  try {
-    const v = execSync(
-      'security find-generic-password -a "card-studio-feishu" -s "card-studio-feishu-user-token" -w',
-      { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }
-    ).trim();
-    if (v) return v;
-  } catch {}
+  // 方案 A: 环境变量 (Vercel 云端必须走这条)
+  const envToken = process.env.FEISHU_USER_TOKEN;
+  if (envToken && envToken.length > 0) return envToken;
 
-  // 方案 B: lark-cli auth token（直接调子命令拿 access_token JSON）
+  // 方案 B: 本地开发走 lark-cli auth token（直接调子命令拿 access_token JSON）
   try {
     const out = execSync(
       'lark-cli auth token --json 2>/dev/null || lark-cli auth status --json 2>/dev/null',
       { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }
     ).trim();
-    // 试图从 output 抽 access_token / user_access_token
     const m = out.match(/"user_access_token"\s*:\s*"([^"]+)"/) ||
               out.match(/"access_token"\s*:\s*"([^"]+)"/);
     if (m) return m[1];
