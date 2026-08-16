@@ -82,6 +82,21 @@ async function larkApi(method: string, path: string, body?: any, identity: "user
     return resp.json();
   }
 
+  // 本地有 feishu-proxy (Node 常驻) 时优先走 HTTP (比 exec lark-cli 快 100 倍)
+  const proxyUrl = process.env.FEISHU_PROXY_URL;
+  if (proxyUrl) {
+    const resp = await fetch(`${proxyUrl}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Feishu-Identity": identity,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      cache: "no-store",
+    });
+    return resp.json();
+  }
+
   // 本地走 lark-cli 子进程 (它内部读 keychain)
   const bodyArg = body ? ` --data '${JSON.stringify(body).replace(/'/g, "'\\''")}'` : "";
   const cmd = `lark-cli api ${method} ${path}${bodyArg} --as ${identity} --json 2>&1`;
