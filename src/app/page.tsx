@@ -21,6 +21,7 @@ export default function HomePage() {
   const [newName, setNewName] = useState("");
   const [newStyle, setNewStyle] = useState("Editorial Weekly");
   const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<"newest" | "oldest" | "name" | "cards">("newest");
 
   async function refresh() {
     try {
@@ -87,6 +88,21 @@ export default function HomePage() {
       return false;
     });
   }, [tasks, search]);
+
+  const sortedTasks = useMemo(() => {
+    if (!filteredTasks) return [];
+    const arr = [...filteredTasks];
+    switch (sortBy) {
+      case "newest":
+        return arr.sort((a, b) => b.task_id - a.task_id);
+      case "oldest":
+        return arr.sort((a, b) => a.task_id - b.task_id);
+      case "name":
+        return arr.sort((a, b) => a.project_name.localeCompare(b.project_name, "zh-CN"));
+      case "cards":
+        return arr.sort((a, b) => b.cards.length - a.cards.length);
+    }
+  }, [filteredTasks, sortBy]);
 
   const openTask = tasks?.find((t) => t.task_id === openTaskId);
 
@@ -241,13 +257,34 @@ export default function HomePage() {
               className="bg-creamLight border border-ink px-3 py-1.5 text-[13px] font-mono w-72"
             />
             <p className="text-inkSoft text-[13px] whitespace-nowrap">
-              {tasks ? `${filteredTasks.length} / ${tasks.length}` : "loading..."}
+              {tasks ? `${sortedTasks.length} / ${tasks.length}` : "loading..."}
             </p>
           </div>
         </div>
 
+        <div className="flex items-center gap-2 mb-6">
+          {([
+            ["newest", "最新"],
+            ["oldest", "最老"],
+            ["name", "项目名"],
+            ["cards", "图片数"],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setSortBy(key)}
+              className={`px-3 py-1 text-[12px] font-mono border transition ${
+                sortBy === key
+                  ? "bg-ink text-cream border-ink"
+                  : "bg-creamLight text-inkSoft border-creamDeep hover:border-ink"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         <TaskGrid
-          tasks={filteredTasks}
+          tasks={sortedTasks}
           onOpen={(tid) => setOpenTaskId(tid)}
         />
       </section>
