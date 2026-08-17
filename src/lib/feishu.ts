@@ -68,7 +68,17 @@ export const TABLE_COPY = process.env.BITABLE_TABLE_COPY || "tblRSEX8K3mvKpix"; 
  */
 async function larkApi(method: string, path: string, body?: any, identity: "user" | "bot" = "bot"): Promise<any> {
   // 优先走 env 直接调飞书 API (Vercel 云端)
-  const envToken = process.env.FEISHU_USER_TOKEN || process.env.FEISHU_BOT_TOKEN || process.env.FEISHU_APP_ACCESS_TOKEN;
+  let envToken = process.env.FEISHU_USER_TOKEN || process.env.FEISHU_BOT_TOKEN || process.env.FEISHU_APP_ACCESS_TOKEN;
+
+  // 如果没有直接 token，用 APP_ID + APP_SECRET 自动获取 tenant_access_token
+  if (!envToken && process.env.FEISHU_APP_ID && process.env.FEISHU_APP_SECRET) {
+    try {
+      envToken = await getTenantAccessToken();
+    } catch {
+      // 获取失败，继续往下走
+    }
+  }
+
   if (envToken) {
     const resp = await fetch(`${FEISHU_BASE}${path}`, {
       method,
