@@ -40,8 +40,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     if (!att?.url) continue;
     try {
       const buf = await getAttachmentBuffer(card.record_id, att.file_token, att.name || `${card.fields?.卡号}.png`);
-      const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
-      archive.append(u8, { name: `${card.fields?.卡号 || card.record_id}.png` });
+      archive.append(Buffer.from(buf), { name: `${card.fields?.卡号 || card.record_id}.png` });
     } catch (e: any) {
       archive.append(
         Buffer.from(`# 下载失败\n${e?.message || e}\n`, "utf-8"),
