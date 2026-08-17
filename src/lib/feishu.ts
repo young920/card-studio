@@ -66,7 +66,7 @@ async function feishuApi(method: string, path: string, body?: any): Promise<any>
 /* ---- Bitable REST helpers ---- */
 async function bitable(path: string, init: { method?: string; body?: any } = {}): Promise<any> {
   const method = init.method || "GET";
-  const fullPath = `/open-apis/bitable/v1${path}`;
+  const fullPath = `/bitable/v1${path}`;
   const json: any = await feishuApi(method, fullPath, init.body);
   if (json.code !== undefined && json.code !== 0) {
     throw new Error(`Bitable 请求失败: ${json.msg} (code=${json.code})`);
