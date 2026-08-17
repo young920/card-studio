@@ -1,135 +1,75 @@
 /**
  * Feishu Bitable client.
- * App credentials: 本地走 .env.local, Vercel 云端走 dashboard 环境变量.
- * 这样部署后能直接跑, 不依赖 macOS Keychain.
+ * Vercel 云端: 用 APP_ID + APP_SECRET 自动获取 tenant_access_token，纯 HTTP 调飞书 API。
+ * 本地开发: 可选走 lark-cli（需要本地安装 lark-cli）。
  */
-import { execSync } from "node:child_process";
-
-export function getAppCredentials() {
-  const appId = process.env.FEISHU_APP_ID || "";
-  const appSecret = process.env.FEISHU_APP_SECRET || "";
-  return { appId, appSecret };
-}
 
 const FEISHU_BASE = "https://open.feishu.cn/open-apis";
 
-export async function getTenantAccessToken(): Promise<string> {
-  const { appId, appSecret } = getAppCredentials();
-
-  // 方案 A: 直接从 env 拿 (Vercel 云端走这条, 用户在 dashboard 配)
-  if (appId && appSecret) {
-    const resp = await fetch(`${FEISHU_BASE}/auth/v3/tenant_access_token/internal`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
-      cache: "no-store",
-    });
-    const json: any = await resp.json();
-    if (json.code !== 0) throw new Error(`tenant_access_token failed: ${json.msg}`);
-    return json.tenant_access_token as string;
-  }
-
-  // 方案 B: 本地开发走 lark-cli (让 lark-cli 当 backend proxy)
-  // lark-cli 内部已经能拿 tenant token, 我们只调一下验证
-  try {
-    const out = execSync(
-      'lark-cli base +table-list --base-token "' + BITABLE_BASE_TOKEN + '" --json 2>&1',
-      { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }
-    ).trim();
-    const json = JSON.parse(out);
-    if (json.ok === false) {
-      throw new Error(`lark-cli fallback failed: ${json.error?.message || "unknown"}`);
-    }
-    // 探活成功, 但 lark-cli 没暴露 tenant_token 直接拿法
-    // 走真正 proxy 路径: 调飞书 API, 但用 user_access_token 作为 fallback
-    // 简化: 跳到方案 C
-  } catch {
-    // lark-cli 探活失败, 走方案 C
-  }
-
-  // 方案 C: 用 user_access_token 直接调飞书 API (不需要 tenant token)
-  // 多数 bitable 只读场景 user token 就够了
-  const userToken = await getUserAccessToken();
-  return userToken; // user_access_token 也能调 bitable API
+function isVercel(): boolean {
+  return !!process.env.VERCEL;
 }
 
-/* ---- Bitable constants (the user's vault) ---- */
+/* ---- Bitable constants ---- */
 export const BITABLE_BASE_TOKEN = process.env.BITABLE_BASE_TOKEN || "BQ3gbOvjPa8tG9sAeRycCJSInrh";
-export const TABLE_GRAPHS = process.env.BITABLE_TABLE_GRAPHS || "tblYWFt0cNPvIKb8"; // 信息图库
-export const TABLE_COPY = process.env.BITABLE_TABLE_COPY || "tblRSEX8K3mvKpix"; // 小红书文案库
+export const TABLE_GRAPHS = process.env.BITABLE_TABLE_GRAPHS || "tblYWFt0cNPvIKb8";
+export const TABLE_COPY = process.env.BITABLE_TABLE_COPY || "tblRSEX8K3mvKpix";
 
-/* ---- lark-cli proxy helper ---- */
-/**
- * 所有飞书 API 调用走 lark-cli 子进程 (本地开发)
- * lark-cli 内部拿 token, 我们不需要知道 app secret / user token
- * Vercel 云端走 env 拿 token, 不走 lark-cli
- *
- * 默认 --as bot (tenant 身份), bitable 不需要 user scope
- */
-async function larkApi(method: string, path: string, body?: any, identity: "user" | "bot" = "bot"): Promise<any> {
-  // 优先走 env 直接调飞书 API (Vercel 云端)
-  let envToken = process.env.FEISHU_USER_TOKEN || process.env.FEISHU_BOT_TOKEN || process.env.FEISHU_APP_ACCESS_TOKEN;
+/* ---- tenant_access_token（纯 HTTP，不依赖 lark-cli）---- */
+let _cachedTenantToken: string | null = null;
+let _cachedTenantTokenExpiry = 0;
 
-  // 如果没有直接 token，用 APP_ID + APP_SECRET 自动获取 tenant_access_token
-  if (!envToken && process.env.FEISHU_APP_ID && process.env.FEISHU_APP_SECRET) {
-    try {
-      envToken = await getTenantAccessToken();
-    } catch {
-      // 获取失败，继续往下走
-    }
+export async function getTenantAccessToken(): Promise<string> {
+  // 缓存 50 分钟（飞书 token 有效期 2 小时）
+  if (_cachedTenantToken && Date.now() < _cachedTenantTokenExpiry) {
+    return _cachedTenantToken;
   }
 
-  if (envToken) {
-    const resp = await fetch(`${FEISHU_BASE}${path}`, {
-      method,
-      headers: {
-        Authorization: `Bearer ${envToken}`,
-        "Content-Type": "application/json",
-      },
-      body: body ? JSON.stringify(body) : undefined,
-      cache: "no-store",
-    });
-    return resp.json();
+  const appId = process.env.FEISHU_APP_ID || "";
+  const appSecret = process.env.FEISHU_APP_SECRET || "";
+
+  if (!appId || !appSecret) {
+    throw new Error("飞书应用凭证未配置（FEISHU_APP_ID / FEISHU_APP_SECRET）");
   }
 
-  // 本地有 feishu-proxy (Node 常驻) 时优先走 HTTP (比 exec lark-cli 快 100 倍)
-  const proxyUrl = process.env.FEISHU_PROXY_URL;
-  if (proxyUrl) {
-    const resp = await fetch(`${proxyUrl}${path}`, {
-      method,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Feishu-Identity": identity,
-      },
-      body: body ? JSON.stringify(body) : undefined,
-      cache: "no-store",
-    });
-    return resp.json();
+  const resp = await fetch(`${FEISHU_BASE}/auth/v3/tenant_access_token/internal`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
+    cache: "no-store",
+  });
+  const json: any = await resp.json();
+  if (json.code !== 0) {
+    throw new Error(`获取 tenant_access_token 失败: ${json.msg} (code=${json.code})`);
   }
 
-  // 本地走 lark-cli 子进程 (它内部读 keychain)
-  const bodyArg = body ? ` --data '${JSON.stringify(body).replace(/'/g, "'\\''")}'` : "";
-  const cmd = `lark-cli api ${method} ${path}${bodyArg} --as ${identity} --json 2>&1`;
-  try {
-    const out = execSync(cmd, { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-    const json = JSON.parse(out);
-    if (json.ok === false) {
-      throw new Error(`lark-cli ${path} failed: ${json.error?.message || out.slice(0, 200)}`);
-    }
-    return json;
-  } catch (e: any) {
-    throw new Error(`lark-cli proxy error: ${e.message?.slice(0, 300) || e}`);
-  }
+  _cachedTenantToken = json.tenant_access_token;
+  _cachedTenantTokenExpiry = Date.now() + 50 * 60 * 1000;
+  return _cachedTenantToken!;
+}
+
+/* ---- 飞书 API 调用（纯 HTTP）---- */
+async function feishuApi(method: string, path: string, body?: any): Promise<any> {
+  const token = await getTenantAccessToken();
+  const resp = await fetch(`${FEISHU_BASE}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: body ? JSON.stringify(body) : undefined,
+    cache: "no-store",
+  });
+  return resp.json();
 }
 
 /* ---- Bitable REST helpers ---- */
-async function bitable(path: string, init: { method?: string; body?: any; identity?: "user" | "bot" } = {}) {
+async function bitable(path: string, init: { method?: string; body?: any } = {}): Promise<any> {
   const method = init.method || "GET";
-  // path 已经包含 /apps/.../, 不需要再加 /bitable/v1 前缀
   const fullPath = `/open-apis/bitable/v1${path}`;
-  const json: any = await larkApi(method, fullPath, init.body, init.identity || "bot");
+  const json: any = await feishuApi(method, fullPath, init.body);
   if (json.code !== undefined && json.code !== 0) {
-    throw new Error(`Bitable ${path} failed: ${json.code} ${json.msg}`);
+    throw new Error(`Bitable 请求失败: ${json.msg} (code=${json.code})`);
   }
   return json.data;
 }
@@ -157,30 +97,28 @@ export async function getAttachmentDownloadUrl(recordId: string, fileToken: stri
   const data: any = await bitable(
     `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_GRAPHS}/records/${recordId}/attachments/${fileToken}`
   );
-  // API returns either { temp_download_url } or { url } depending on version
   return (data.temp_download_url || data.url || data.download_url) as string;
 }
 
 /* ---- Write operations ---- */
-
 export async function updateCardFields(recordId: string, fields: Record<string, any>): Promise<void> {
   await bitable(
     `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_GRAPHS}/records/${recordId}`,
-    { method: "PUT", body: { fields }, identity: "user" }
+    { method: "PUT", body: { fields } }
   );
 }
 
 export async function updateCopyFields(recordId: string, fields: Record<string, any>): Promise<void> {
   await bitable(
     `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_COPY}/records/${recordId}`,
-    { method: "PUT", body: { fields }, identity: "user" }
+    { method: "PUT", body: { fields } }
   );
 }
 
 export async function createCard(fields: Record<string, any>): Promise<{ record_id: string }> {
   const data = await bitable(
     `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_GRAPHS}/records`,
-    { method: "POST", body: { fields }, identity: "user" }
+    { method: "POST", body: { fields } }
   );
   return { record_id: data.record.record_id };
 }
@@ -188,7 +126,7 @@ export async function createCard(fields: Record<string, any>): Promise<{ record_
 export async function createCopy(fields: Record<string, any>): Promise<{ record_id: string }> {
   const data = await bitable(
     `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_COPY}/records`,
-    { method: "POST", body: { fields }, identity: "user" }
+    { method: "POST", body: { fields } }
   );
   return { record_id: data.record.record_id };
 }
@@ -196,19 +134,18 @@ export async function createCopy(fields: Record<string, any>): Promise<{ record_
 export async function deleteCard(recordId: string): Promise<void> {
   await bitable(
     `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_GRAPHS}/records/${recordId}`,
-    { method: "DELETE", identity: "user" }
+    { method: "DELETE" }
   );
 }
 
 export async function deleteCopy(recordId: string): Promise<void> {
   await bitable(
     `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_COPY}/records/${recordId}`,
-    { method: "DELETE", identity: "user" }
+    { method: "DELETE" }
   );
 }
 
 export async function nextAutoNumber(taskId: number): Promise<number> {
-  // compute next task_id = max(task_id) + 1 across all cards
   const data = await bitable(
     `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_GRAPHS}/records?page_size=100&fields=task_id`
   );
@@ -220,12 +157,12 @@ export async function nextAutoNumber(taskId: number): Promise<number> {
   return max + 1;
 }
 
-/** Group raw cards into "tasks" (one task_id = one project bundle). */
+/* ---- Group into Tasks ---- */
 export interface Task {
   task_id: number;
   project_name: string;
-  cards: Card[]; // sorted by 卡号 asc
-  copy?: Card;   // optional 小红书文案 record
+  cards: Card[];
+  copy?: Card;
 }
 
 export function groupIntoTasks(graphCards: Card[], copyCards: Card[]): Task[] {
@@ -244,91 +181,94 @@ export function groupIntoTasks(graphCards: Card[], copyCards: Card[]): Task[] {
     const t = byTask.get(tid);
     if (t) t.copy = cp;
   }
-  // sort cards within each task by 卡号
   for (const t of byTask.values()) {
     t.cards.sort((a, b) => String(a.fields.卡号 || "").localeCompare(String(b.fields.卡号 || "")));
   }
-  // sort tasks by task_id desc (newest first)
   return [...byTask.values()].sort((a, b) => b.task_id - a.task_id);
 }
-/**
- * 拿 user_access_token —— Vercel 云端走 env (FEISHU_USER_TOKEN),
- * 本地开发走 lark-cli auth token (exec 调用).
- */
-export async function getUserAccessToken(): Promise<string> {
-  // 方案 A: 环境变量 (Vercel 云端必须走这条)
-  const envToken = process.env.FEISHU_USER_TOKEN;
-  if (envToken && envToken.length > 0) return envToken;
 
-  // 方案 B: 本地开发走 lark-cli auth token（直接调子命令拿 access_token JSON）
-  try {
-    const out = execSync(
-      'lark-cli auth token --json 2>/dev/null || lark-cli auth status --json 2>/dev/null',
-      { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }
-    ).trim();
-    const m = out.match(/"user_access_token"\s*:\s*"([^"]+)"/) ||
-              out.match(/"access_token"\s*:\s*"([^"]+)"/);
-    if (m) return m[1];
-  } catch {}
-
-  // 方案 C: 都没有 → 让前端弹「重连飞书」按钮
-  throw new Error("user_access_token missing — please click 重新连接按钮");
-}
-
-/**
- * 飞书 drive batch_get_tmp_download_url（不需 recordId，用 file_token 直接拿 2 小时有效下载 URL）
- */
-/** Download attachment as buffer (for zip 资源包)
- *  用 lark-cli base +record-download-attachment (已知能通, 340KB PNG)
- */
+/* ---- 附件下载（Vercel 走飞书 API，本地可选 lark-cli）---- */
 export async function getAttachmentBuffer(
   recordId: string,
   fileToken: string,
   fileName: string = "attachment.png"
 ): Promise<Buffer> {
-  const { execSync } = await import("child_process");
-  const fs = await import("fs/promises");
-  const path = await import("path");
-  const os = await import("os");
+  if (!isVercel()) {
+    // 本地开发走 lark-cli
+    const { execSync } = await import("node:child_process");
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
 
-  // 1. lark-cli 下载到项目内 .downloads/ (相对路径约束, 不能跳出 cwd)
-  const tmpDir = path.join(process.cwd(), ".downloads");
-  await fs.mkdir(tmpDir, { recursive: true });
-  const tmpFile = path.join(tmpDir, fileName);
+    const tmpDir = path.join(process.cwd(), ".downloads");
+    await fs.mkdir(tmpDir, { recursive: true });
+    const tmpFile = path.join(tmpDir, fileName);
 
-  const cmd = [
-    "lark-cli",
-    "base", "+record-download-attachment",
-    "--base-token", BITABLE_BASE_TOKEN,
-    "--table-id", TABLE_GRAPHS,
-    "--record-id", recordId,
-    "--file-token", fileToken,
-    "--output", path.relative(process.cwd(), tmpFile),
-    "--as", "user",
-  ].join(" ");
-  execSync(cmd, { encoding: "utf-8", cwd: process.cwd() });
+    const cmd = [
+      "lark-cli", "base", "+record-download-attachment",
+      "--base-token", BITABLE_BASE_TOKEN,
+      "--table-id", TABLE_GRAPHS,
+      "--record-id", recordId,
+      "--file-token", fileToken,
+      "--output", path.relative(process.cwd(), tmpFile),
+      "--as", "user",
+    ].join(" ");
+    execSync(cmd, { encoding: "utf-8", cwd: process.cwd() });
 
-  // 2. 读 buffer
-  const buf = await fs.readFile(tmpFile);
-  await fs.unlink(tmpFile).catch(() => {});
-  return buf;
+    const buf = await fs.readFile(tmpFile);
+    await fs.unlink(tmpFile).catch(() => {});
+    return buf;
+  }
+
+  // Vercel: 用 drive API 拿临时下载 URL，再 fetch 文件
+  const token = await getTenantAccessToken();
+  const dlResp = await fetch(
+    `${FEISHU_BASE}/drive/v1/medias/batch_get_tmp_download_url`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ file_tokens: [fileToken] }),
+      cache: "no-store",
+    }
+  );
+  const dlJson: any = await dlResp.json();
+  if (dlJson.code !== 0) throw new Error(`获取下载链接失败: ${dlJson.msg}`);
+  const url = dlJson.data?.tmp_download_urls?.[0]?.tmp_download_url;
+  if (!url) throw new Error("下载链接为空");
+
+  const fileResp = await fetch(url);
+  if (!fileResp.ok) throw new Error(`下载附件失败: ${fileResp.status}`);
+  const arrayBuf = await fileResp.arrayBuffer();
+  return Buffer.from(arrayBuf);
 }
 
-export async function getAttachmentTmpUrl(fileToken: string, userToken: string): Promise<string> {
+export async function getAttachmentTmpUrl(fileToken: string): Promise<string> {
+  const token = await getTenantAccessToken();
   const resp = await fetch(`${FEISHU_BASE}/drive/v1/medias/batch_get_tmp_download_url`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${userToken}`,
+      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      file_tokens: [fileToken],
-    }),
+    body: JSON.stringify({ file_tokens: [fileToken] }),
     cache: "no-store",
   });
   const json: any = await resp.json();
-  if (json.code !== 0) throw new Error(`tmp_download_url failed: ${json.code} ${json.msg}`);
+  if (json.code !== 0) throw new Error(`tmp_download_url 失败: ${json.code} ${json.msg}`);
   const item = json.data?.tmp_download_urls?.[0];
-  if (!item?.tmp_download_url) throw new Error("no tmp_download_url in response");
+  if (!item?.tmp_download_url) throw new Error("下载链接为空");
   return item.tmp_download_url as string;
+}
+
+/**
+ * 前端「飞书重连」按钮调用。
+ * Vercel 上不需要 lark-cli，返回提示信息即可。
+ */
+export function getAuthRestartHint(): string {
+  if (isVercel()) {
+    return "Vercel 部署使用应用凭证自动认证，无需手动重连。如数据加载失败，请检查环境变量配置。";
+  }
+  return "本地开发请运行: lark-cli auth login --scope \"bitable:app base:app:read base:record:read\"";
 }

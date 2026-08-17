@@ -1,42 +1,46 @@
 import { NextResponse } from "next/server";
-import { execSync } from "node:child_process";
+import { getTenantAccessToken } from "@/lib/feishu";
 
 export const dynamic = "force-dynamic";
 
-/** Health check — 验证 lark-cli proxy 是否能调通 bitable. */
+/** Health check — 验证飞书 API 是否能调通. */
 export async function GET() {
-  // 1. env 路径 (Vercel 云端)
-  const envToken = process.env.FEISHU_USER_TOKEN || process.env.FEISHU_BOT_TOKEN;
-  if (envToken) {
+  const appId = process.env.FEISHU_APP_ID || "";
+  const appSecret = process.env.FEISHU_APP_SECRET || "";
+  const baseToken = process.env.BITABLE_BASE_TOKEN || "BQ3gbOvjPa8tG9sAeRycCJSInrh";
+
+  if (!appId || !appSecret) {
     return NextResponse.json({
-      ok: true,
-      mode: "env",
-      tokenPresent: true,
-      bitableBase: process.env.BITABLE_BASE_TOKEN || "BQ3gbOvjPa8tG9sAeRycCJSInrh",
+      ok: false,
+      mode: "missing-credentials",
+      error: "未配置 FEISHU_APP_ID / FEISHU_APP_SECRET 环境变量",
     });
   }
 
-  // 2. 本地 lark-cli proxy 路径
   try {
-    const out = execSync(
-      `lark-cli api GET "/open-apis/bitable/v1/apps/${process.env.BITABLE_BASE_TOKEN || "BQ3gbOvjPa8tG9sAeRycCJSInrh"}/tables/tblYWFt0cNPvIKb8/records?page_size=1" --as bot --json 2>&1`,
-      { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }
-    ).trim();
-    const json = JSON.parse(out);
+    const token = await getTenantAccessToken();
+    // 尝试读一条记录验证权限
+    const resp = await fetch(
+      `https://open.feishu.cn/open-apis/bitable/v1/apps/${baseToken}/tables/tblYWFt0cNPvIKb8/records?page_size=1`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      }
+    );
+    const json: any = await resp.json();
     return NextResponse.json({
-      ok: json.ok === true,
-      mode: "lark-cli-proxy",
-      tokenPresent: json.ok === true,
-      bitableBase: process.env.BITABLE_BASE_TOKEN || "BQ3gbOvjPa8tG9sAeRycCJSInrh",
-      identity: json.identity,
-      error: json.ok ? undefined : json.error?.message,
+      ok: json.code === 0,
+      mode: "tenant-access-token",
+      tokenPresent: true,
+      bitableBase: baseToken,
+      error: json.code !== 0 ? json.msg : undefined,
     });
   } catch (e: any) {
     return NextResponse.json({
       ok: false,
-      mode: "lark-cli-proxy",
+      mode: "tenant-access-token",
       tokenPresent: false,
-      bitableBase: process.env.BITABLE_BASE_TOKEN || "BQ3gbOvjPa8tG9sAeRycCJSInrh",
+      bitableBase: baseToken,
       error: String(e.message || e).slice(0, 200),
     });
   }
