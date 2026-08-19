@@ -1,26 +1,20 @@
 /**
- * Feishu Bitable client.
- * Vercel 云端: 用 APP_ID + APP_SECRET 自动获取 tenant_access_token，纯 HTTP 调飞书 API。
- * 本地开发: 可选走 lark-cli（需要本地安装 lark-cli）。
+ * Feishu Bitable client — Edge Runtime 兼容版
+ * 纯 fetch + Uint8Array，无 Node 依赖
  */
 
 const FEISHU_BASE = "https://open.feishu.cn/open-apis";
-
-function isVercel(): boolean {
-  return !!process.env.VERCEL;
-}
 
 /* ---- Bitable constants ---- */
 export const BITABLE_BASE_TOKEN = process.env.BITABLE_BASE_TOKEN || "BQ3gbOvjPa8tG9sAeRycCJSInrh";
 export const TABLE_GRAPHS = process.env.BITABLE_TABLE_GRAPHS || "tblYWFt0cNPvIKb8";
 export const TABLE_COPY = process.env.BITABLE_TABLE_COPY || "tblRSEX8K3mvKpix";
 
-/* ---- tenant_access_token（纯 HTTP，不依赖 lark-cli）---- */
+/* ---- tenant_access_token ---- */
 let _cachedTenantToken: string | null = null;
 let _cachedTenantTokenExpiry = 0;
 
 export async function getTenantAccessToken(): Promise<string> {
-  // 缓存 50 分钟（飞书 token 有效期 2 小时）
   if (_cachedTenantToken && Date.now() < _cachedTenantTokenExpiry) {
     return _cachedTenantToken;
   }
@@ -48,7 +42,7 @@ export async function getTenantAccessToken(): Promise<string> {
   return _cachedTenantToken!;
 }
 
-/* ---- 飞书 API 调用（纯 HTTP）---- */
+/* ---- 飞书 API 调用 ---- */
 async function feishuApi(method: string, path: string, body?: any): Promise<any> {
   const token = await getTenantAccessToken();
   const resp = await fetch(`${FEISHU_BASE}${path}`, {
@@ -187,39 +181,12 @@ export function groupIntoTasks(graphCards: Card[], copyCards: Card[]): Task[] {
   return [...byTask.values()].sort((a, b) => b.task_id - a.task_id);
 }
 
-/* ---- 附件下载（Vercel 走飞书 API，本地可选 lark-cli）---- */
+/* ---- 附件下载（纯 fetch + ArrayBuffer，Edge 兼容）---- */
 export async function getAttachmentBuffer(
-  recordId: string,
+  _recordId: string,
   fileToken: string,
-  fileName: string = "attachment.png"
-): Promise<Buffer> {
-  if (!isVercel()) {
-    // 本地开发走 lark-cli
-    const { execSync } = await import("node:child_process");
-    const fs = await import("node:fs/promises");
-    const path = await import("node:path");
-
-    const tmpDir = path.join(process.cwd(), ".downloads");
-    await fs.mkdir(tmpDir, { recursive: true });
-    const tmpFile = path.join(tmpDir, fileName);
-
-    const cmd = [
-      "lark-cli", "base", "+record-download-attachment",
-      "--base-token", BITABLE_BASE_TOKEN,
-      "--table-id", TABLE_GRAPHS,
-      "--record-id", recordId,
-      "--file-token", fileToken,
-      "--output", path.relative(process.cwd(), tmpFile),
-      "--as", "user",
-    ].join(" ");
-    execSync(cmd, { encoding: "utf-8", cwd: process.cwd() });
-
-    const buf = await fs.readFile(tmpFile);
-    await fs.unlink(tmpFile).catch(() => {});
-    return buf;
-  }
-
-  // Vercel: 用 drive API 拿临时下载 URL，再 fetch 文件
+  _fileName: string = "attachment.png"
+): Promise<ArrayBuffer> {
   const token = await getTenantAccessToken();
   const dlResp = await fetch(
     `${FEISHU_BASE}/drive/v1/medias/batch_get_tmp_download_url`,
@@ -240,8 +207,7 @@ export async function getAttachmentBuffer(
 
   const fileResp = await fetch(url);
   if (!fileResp.ok) throw new Error(`下载附件失败: ${fileResp.status}`);
-  const arrayBuf = await fileResp.arrayBuffer();
-  return Buffer.from(arrayBuf);
+  return fileResp.arrayBuffer();
 }
 
 export async function getAttachmentTmpUrl(fileToken: string): Promise<string> {
@@ -262,13 +228,51 @@ export async function getAttachmentTmpUrl(fileToken: string): Promise<string> {
   return item.tmp_download_url as string;
 }
 
-/**
- * 前端「飞书重连」按钮调用。
- * Vercel 上不需要 lark-cli，返回提示信息即可。
- */
-export function getAuthRestartHint(): string {
-  if (isVercel()) {
-    return "Vercel 部署使用应用凭证自动认证，无需手动重连。如数据加载失败，请检查环境变量配置。";
+/* ---- multipart 构造（Edge 兼容，Uint8Array 版）---- */
+export function buildMultipartBody(
+  fields: Record<string, string>,
+  fileField: string,
+  fileName: string,
+  fileData: Uint8Array,
+  fileType: string = "application/octet-stream"
+): { body: ArrayBuffer; contentType: string } {
+  const boundary = "----CardStudio" + Math.random().toString(16).slice(2, 10);
+  const encoder = new TextEncoder();
+  const CRLF = encoder.encode("\r\n");
+  const parts: Uint8Array[] = [];
+
+  for (const [key, value] of Object.entries(fields)) {
+    parts.push(encoder.encode(`--${boundary}\r\n`));
+    parts.push(encoder.encode(`Content-Disposition: form-data; name="${key}"\r\n\r\n`));
+    parts.push(encoder.encode(value));
+    parts.push(CRLF);
   }
-  return "本地开发请运行: lark-cli auth login --scope \"bitable:app base:app:read base:record:read\"";
+
+  parts.push(encoder.encode(`--${boundary}\r\n`));
+  parts.push(encoder.encode(
+    `Content-Disposition: form-data; name="${fileField}"; filename="${fileName}"\r\n` +
+    `Content-Type: ${fileType}\r\n\r\n`
+  ));
+  parts.push(fileData);
+  parts.push(CRLF);
+  parts.push(encoder.encode(`--${boundary}--\r\n`));
+
+  // 合并
+  let total = 0;
+  for (const p of parts) total += p.length;
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const p of parts) {
+    merged.set(p, offset);
+    offset += p.length;
+  }
+
+  return {
+    body: merged.buffer.slice(merged.byteOffset, merged.byteOffset + merged.byteLength),
+    contentType: `multipart/form-data; boundary=${boundary}`,
+  };
+}
+
+export function getAuthRestartHint(): string {
+  return "使用应用凭证自动认证，无需手动重连。如数据加载失败，请检查环境变量配置。";
 }

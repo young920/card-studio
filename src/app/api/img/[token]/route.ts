@@ -1,9 +1,9 @@
 import { getTenantAccessToken } from "@/lib/feishu";
 
 export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
+export const runtime = "edge";
 
-/** GET /api/img/[token] — 反代飞书附件图片给前端用 */
+/** GET /api/img/[token] — 反代飞书附件（图片/视频）给前端用 */
 export async function GET(req: Request, { params }: { params: { token: string } }) {
   const fileToken = params.token;
   if (!fileToken || fileToken === "undefined" || fileToken === "null") {
@@ -13,8 +13,8 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   try {
     const token = await getTenantAccessToken();
 
-    // 用 drive API 下载附件
-    const resp = await fetch(
+    // 方法 1: 直接 download（bitable_image 附件）
+    let resp = await fetch(
       `https://open.feishu.cn/open-apis/drive/v1/medias/${fileToken}/download`,
       {
         headers: { Authorization: `Bearer ${token}` },
@@ -23,7 +23,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     );
 
     if (!resp.ok) {
-      // 降级：用 batch_get_tmp_download_url 拿临时链接
+      // 方法 2: 拿临时下载链接（兼容 bitable_file / 视频等）
       const tmpResp = await fetch(
         "https://open.feishu.cn/open-apis/drive/v1/medias/batch_get_tmp_download_url",
         {
@@ -37,32 +37,44 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         }
       );
       const tmpJson: any = await tmpResp.json();
-      const url = tmpJson.data?.tmp_download_urls?.[0]?.tmp_download_url;
+      const item = tmpJson.data?.tmp_download_urls?.[0];
+      const url = item?.tmp_download_url;
       if (!url) {
-        return new Response("下载链接获取失败", { status: 502 });
+        return new Response(`下载链接获取失败: ${tmpJson.msg || tmpJson.code}`, { status: 502 });
       }
-      const fileResp = await fetch(url);
-      if (!fileResp.ok) {
-        return new Response("文件下载失败", { status: 502 });
+      resp = await fetch(url);
+      if (!resp.ok) {
+        return new Response("文件下载失败: " + resp.status, { status: 502 });
       }
-      const buf = await fileResp.arrayBuffer();
-      return serveBuffer(buf);
     }
 
     const buf = await resp.arrayBuffer();
-    return serveBuffer(buf);
+    const contentType = resp.headers.get("content-type") || "";
+    const contentDisp = resp.headers.get("content-disposition") || "";
+    return serveBuffer(buf, contentType, contentDisp);
   } catch (e: any) {
     return new Response(`请求失败: ${e.message?.slice(0, 200)}`, { status: 500 });
   }
 }
 
-function serveBuffer(buf: ArrayBuffer): Response {
-  const bytes = new Uint8Array(buf);
-  let contentType = "image/png";
-  if (bytes[0] === 0xff && bytes[1] === 0xd8) contentType = "image/jpeg";
-  else if (bytes[0] === 0x47 && bytes[1] === 0x49) contentType = "image/gif";
-  else if (bytes[0] === 0x52 && bytes[1] === 0x49) contentType = "image/webp";
-  return new Response(buf, {
-    headers: { "Content-Type": contentType, "Cache-Control": "public, max-age=3600" },
-  });
+function serveBuffer(buf: ArrayBuffer, contentType: string, contentDisposition: string): Response {
+  let ct = contentType;
+  if (!ct || ct === "application/octet-stream") {
+    const bytes = new Uint8Array(buf);
+    if (bytes[0] === 0xff && bytes[1] === 0xd8) ct = "image/jpeg";
+    else if (bytes[0] === 0x47 && bytes[1] === 0x49) ct = "image/gif";
+    else if (bytes[0] === 0x52 && bytes[1] === 0x49) ct = "image/webp";
+    else if (bytes[0] === 0x89 && bytes[1] === 0x50) ct = "image/png";
+    else ct = "application/octet-stream";
+  }
+
+  const isVideo = ct.startsWith("video/");
+  const headers: Record<string, string> = {
+    "Content-Type": ct,
+    "Cache-Control": "public, max-age=3600",
+  };
+  if (isVideo) headers["Accept-Ranges"] = "bytes";
+  if (contentDisposition) headers["Content-Disposition"] = contentDisposition;
+
+  return new Response(buf, { headers });
 }

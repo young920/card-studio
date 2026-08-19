@@ -1,82 +1,93 @@
-import archiver from "archiver";
-import { getTenantAccessToken } from "./feishu";
+/**
+ * ZIP 打包工具 — Cloudflare Pages Edge Runtime 兼容版
+ * 使用 fflate（纯 JS，无 Node 依赖）替代 archiver
+ */
+import { zipSync, strToU8 } from 'fflate';
 
-/** Sanitize filename for ASCII-only zip headers (non-ASCII filenames break
- * archiver's ByteString coercion on macOS Node 24). */
-function sanitizeFilename(name: string): string {
-  return name.replace(/[^\x20-\x7E]/g, "_");
+/**
+ * 内存中打包 zip，返回 ArrayBuffer（同步，适合小文件）
+ */
+export function zipFiles(
+  files: { name: string; data: Uint8Array | string }[]
+): ArrayBuffer {
+  const zipInput: Record<string, Uint8Array> = {};
+  for (const f of files) {
+    const data = typeof f.data === 'string' ? strToU8(f.data) : f.data;
+    zipInput[f.name] = data;
+  }
+  const result = zipSync(zipInput, { level: 6 });
+  return result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength);
 }
 
-/** Build a CardStudio zip for one task and return Buffer. */
-export async function buildTaskZip(args: {
+/**
+ * 打包整个 task 的资源（供 download/route.ts 用）
+ */
+export async function buildTaskZip(opts: {
   projectName: string;
   taskId: number;
-  cards: Array<{ cardNo: string; pngUrl: string }>;
-  copy?: {
-    title: string;
-    fullCopy: string;
-    tags: string[];
-  };
-}): Promise<Buffer> {
-  return new Promise(async (resolve, reject) => {
-    const chunks: Buffer[] = [];
-    const archive = archiver("zip", { zlib: { level: 9 } });
-    archive.on("data", (c: Buffer) => chunks.push(c));
-    archive.on("end", () => resolve(Buffer.concat(chunks)));
-    archive.on("error", reject);
-
-    // Append each card PNG (fetched from feishu — requires tenant_access_token
-    // AND drive:drive:readonly scope on the app)
-    const token = await getTenantAccessToken();
-    for (const c of args.cards) {
-      try {
-        const r = await fetch(c.pngUrl, { headers: { Authorization: `Bearer ${token}` } });
-        if (!r.ok) {
-          const txt = await r.text().catch(() => "");
-          const isScopeErr = txt.includes("99991672") || txt.includes("Access denied");
-          if (isScopeErr) {
-            throw new Error(
-              `card ${c.cardNo}: missing drive:drive:readonly scope — ` +
-              `open https://open.feishu.cn/app/cli_aaf5646a44789bcf/auth and grant it. ` +
-              `(feishu: ${r.status})`
-            );
-          }
-          console.warn(`skip card ${c.cardNo}: HTTP ${r.status} ${txt.slice(0, 100)}`);
-          continue;
-        }
-        const buf = Buffer.from(await r.arrayBuffer());
-        archive.append(buf, { name: sanitizeFilename(`${c.cardNo}.png`) });
-      } catch (e: any) {
-        console.warn(`skip card ${c.cardNo}: ${e.message}`);
-      }
-    }
-
-    // Append README.md (one big block, not sectioned)
-    const md = renderReadme(args);
-    archive.append(md, { name: "README.md" });
-
-    archive.finalize();
-  });
-}
-
-function renderReadme(args: {
-  projectName: string;
-  taskId: number;
+  cards: { cardNo: string; pngUrl: string }[];
   copy?: { title: string; fullCopy: string; tags: string[] };
-}): string {
-  const c = args.copy;
-  const lines: string[] = [];
-  lines.push(`# ${c?.title || args.projectName}`);
-  lines.push("");
-  lines.push(`<!-- task_id: NO.${String(args.taskId).padStart(3, "0")} -->`);
-  lines.push("");
-  if (c?.fullCopy) {
-    lines.push(c.fullCopy);
-    lines.push("");
+}): Promise<ArrayBuffer> {
+  const files: { name: string; data: Uint8Array | string }[] = [];
+
+  // README
+  const readme = [
+    `# Card Studio 资源包`,
+    ``,
+    `**项目名**：${opts.projectName}`,
+    `**任务 ID**：${opts.taskId}`,
+    `**卡片数**：${opts.cards.length}`,
+    ``,
+    `---`,
+    ``,
+    ...(opts.copy ? [
+      `## 标题`,
+      opts.copy.title,
+      ``,
+      `## 总文案`,
+      opts.copy.fullCopy,
+      ``,
+      `## 标签`,
+      opts.copy.tags.join('、'),
+      ``,
+      `---`,
+      ``,
+    ] : []),
+    `## 卡片索引`,
+    ...opts.cards.map((c) => `- **${c.cardNo}** → \`${c.cardNo}.png\``),
+    ``,
+    `生成时间：${new Date().toLocaleString('zh-CN')}`,
+  ].join('\n');
+  files.push({ name: 'README.md', data: readme });
+
+  // 文案
+  if (opts.copy) {
+    files.push({
+      name: 'xhs-copy.md',
+      data: [
+        `# ${opts.copy.title}`,
+        ``,
+        `## 标签`,
+        opts.copy.tags.join('、'),
+        ``,
+        `## 总文案`,
+        opts.copy.fullCopy,
+      ].join('\n'),
+    });
   }
-  if (c?.tags?.length) {
-    lines.push(c.tags.join(" "));
-    lines.push("");
+
+  // 拉所有原图
+  for (const card of opts.cards) {
+    if (!card.pngUrl) continue;
+    try {
+      const resp = await fetch(card.pngUrl);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const buf = new Uint8Array(await resp.arrayBuffer());
+      files.push({ name: `${card.cardNo}.png`, data: buf });
+    } catch (e: any) {
+      files.push({ name: `${card.cardNo}.ERROR.md`, data: `# 下载失败\n${e?.message || e}\n` });
+    }
   }
-  return lines.join("\n");
+
+  return zipFiles(files);
 }

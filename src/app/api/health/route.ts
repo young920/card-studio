@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { getTenantAccessToken } from "@/lib/feishu";
 
+
+
 export const dynamic = "force-dynamic";
+export const runtime = "edge";
 
 /** Health check — 验证飞书 API 是否能调通. */
 export async function GET() {

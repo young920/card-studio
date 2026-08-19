@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listCards, updateCardFields } from "@/lib/feishu";
 
+
+
 export const dynamic = "force-dynamic";
+export const runtime = "edge";
 
 /** PUT /api/tasks/[id]/reorder — 更新卡片排序 (按 cardIds 数组顺序写回「卡号」字段) */
 export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -16,9 +19,9 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
       return NextResponse.json({ ok: false, error: "cardIds array required" }, { status: 400 });
     }
 
-    // 按新顺序写卡号: NO.001, NO.002, ...
+    // 按新顺序写卡号: card-00, card-01, ...
     const updates = cardIds.map((recordId: string, idx: number) => {
-      const cardNo = `NO.${String(idx + 1).padStart(3, "0")}`;
+      const cardNo = `card-${String(idx).padStart(2, "0")}`;
       return updateCardFields(recordId, { 卡号: cardNo });
     });
 

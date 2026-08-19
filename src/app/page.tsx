@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { TaskModal } from "@/components/TaskModal";
 import { TaskGrid } from "@/components/TaskGrid";
+import { LoadingOverlay } from "@/components/LoadingOverlay";
+import { uploadToFeishu, extractVideoCover, dataUrlToFile } from "@/lib/upload";
 
 interface Card { record_id: string; fields: Record<string, any>; }
 interface Task {
@@ -12,16 +14,32 @@ interface Task {
   copy?: Card;
 }
 
+const STYLE_OPTIONS = ["Editorial Weekly", "Editorial Magazine", "Swiss", "Neo-Brutalist", "Newspaper", "Dialogue", "Paper Brief"];
+
 export default function HomePage() {
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [errKind, setErrKind] = useState<"network" | "auth" | "other" | null>(null);
   const [openTaskId, setOpenTaskId] = useState<number | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newStyle, setNewStyle] = useState("Editorial Weekly");
-  const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "name" | "cards">("newest");
+
+  // 新建任务弹层
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createErr, setCreateErr] = useState<string | null>(null);
+  const [createName, setCreateName] = useState("");
+  const [createStyle, setCreateStyle] = useState(STYLE_OPTIONS[0]);
+  const [createTitle, setCreateTitle] = useState("");
+  const [createBody, setCreateBody] = useState("");
+  const [createTags, setCreateTags] = useState("");
+  const [createFiles, setCreateFiles] = useState<File[]>([]);
+  const [createFileCovers, setCreateFileCovers] = useState<(string | null)[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadSubtitle, setUploadSubtitle] = useState("");
+
+  // 使用指南弹层
+  const [showGuide, setShowGuide] = useState(false);
 
   async function refresh() {
     try {
@@ -45,28 +63,175 @@ export default function HomePage() {
     refresh();
   }, []);
 
+  function resetCreateForm() {
+    setCreateName("");
+    setCreateStyle(STYLE_OPTIONS[0]);
+    setCreateTitle("");
+    setCreateBody("");
+    setCreateTags("");
+    setCreateFiles([]);
+    setCreateFileCovers([]);
+    setUploadProgress(0);
+    setUploadSubtitle("");
+    setCreateErr(null);
+  }
+
   async function handleCreate() {
-    if (!newName.trim()) return;
+    if (!createName.trim()) {
+      setCreateErr("项目名不能为空");
+      return;
+    }
     setCreating(true);
+    setCreateErr(null);
+    setUploading(true);
+    setUploadProgress(0);
+    setUploadSubtitle("创建任务中…");
     try {
+      // 1. 先创建任务（在信息图库占 card-00 + 文案库建记录）
       const r = await fetch("/api/tasks/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          project_name: newName.trim(),
-          style_mode: newStyle,
+          project_name: createName.trim(),
+          style_mode: createStyle,
+          title: createTitle.trim(),
+          body: createBody,
+          tags: createTags.trim().split(/\s+/).filter(Boolean),
         }),
       });
       const j = await r.json();
       if (!j.ok) throw new Error(j.error);
-      setNewName("");
+
+      const taskId = j.task_id;
+      const card00RecordId = j.card00_record_id;
+
+      // 2. 直传所有文件到飞书，拿 file_tokens
+      const fileTokens: string[] = [];
+      const coverTokens: (string | null)[] = [];
+
+      if (createFiles.length > 0) {
+        for (let i = 0; i < createFiles.length; i++) {
+          const file = createFiles[i];
+          const isVideo = file.type.startsWith("video/");
+          const parentType = isVideo ? "bitable_file" : "bitable_image";
+
+          setUploadSubtitle(`上传中 ${i + 1}/${createFiles.length} · ${file.name}`);
+
+          const token = await uploadToFeishu({
+            file,
+            parentType,
+            onProgress: (p) => {
+              const base = (i / createFiles.length) * 100;
+              setUploadProgress(base + p / createFiles.length);
+            },
+          });
+          fileTokens.push(token);
+
+          // 视频自动截封面，也传上去
+          if (isVideo) {
+            try {
+              setUploadSubtitle(`生成封面 ${i + 1}/${createFiles.length}`);
+              const coverDataUrl = await extractVideoCover(file);
+              const coverFile = dataUrlToFile(coverDataUrl, `${file.name}-cover.jpg`);
+              const coverToken = await uploadToFeishu({
+                file: coverFile,
+                parentType: "bitable_image",
+                onProgress: () => {},
+              });
+              coverTokens.push(coverToken);
+            } catch {
+              coverTokens.push(null);
+            }
+          } else {
+            coverTokens.push(null);
+          }
+        }
+        setUploadProgress(100);
+        setUploadSubtitle("同步到飞书表格…");
+      }
+
+      // 3. 在信息图库建卡片记录（第一张用 card00RecordId 覆盖，其余新建）
+      if (fileTokens.length > 0) {
+        for (let i = 0; i < fileTokens.length; i++) {
+          const cardNo = "card-" + String(i).padStart(2, "0");
+          const isVideo = createFiles[i].type.startsWith("video/");
+          const body: Record<string, any> = {
+            task_id: taskId,
+            card_no: cardNo,
+            topic: `${createName.trim()} · ${cardNo}`,
+            mode: createStyle,
+            file_token: fileTokens[i],
+          };
+          if (isVideo && coverTokens[i]) {
+            body.cover_token = coverTokens[i];
+          }
+
+          // 第一张覆盖 card-00
+          if (i === 0 && card00RecordId) {
+            // 用 PUT 更新 card-00
+            const fd = new FormData();
+            fd.append("task_id", String(taskId));
+            fd.append("card_no", cardNo);
+            fd.append("topic", `${createName.trim()} · ${cardNo}`);
+            fd.append("mode", createStyle);
+
+            // 小图直接走后端接口更新
+            const upr = await fetch(`/api/cards/${card00RecordId}/direct`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            });
+            const upj = await upr.json();
+            if (!upj.ok) console.warn("更新 card-00 失败:", upj.error);
+          } else {
+            // 后续新建卡片
+            await fetch("/api/cards/direct", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            });
+          }
+        }
+      }
+
+      resetCreateForm();
+      setShowCreate(false);
       await refresh();
-      setOpenTaskId(j.task_id);
+      setOpenTaskId(taskId);
     } catch (e: any) {
-      alert("创建失败：" + e.message);
+      setCreateErr(e.message);
     } finally {
       setCreating(false);
+      setUploading(false);
     }
+  }
+
+  async function handleCreateFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const newFiles = Array.from(files);
+    setCreateFiles((prev) => [...prev, ...newFiles]);
+    // 占位封面，后续异步生成
+    setCreateFileCovers((prev) => [...prev, ...newFiles.map(() => null)]);
+    // 异步生成视频封面
+    newFiles.forEach(async (file, idx) => {
+      if (file.type.startsWith("video/")) {
+        try {
+          const cover = await extractVideoCover(file);
+          setCreateFileCovers((prev) => {
+            const next = [...prev];
+            const realIdx = createFiles.length + idx;
+            if (next.length > realIdx) next[realIdx] = cover;
+            return next;
+          });
+        } catch {}
+      }
+    });
+  }
+
+  function removeCreateFile(idx: number) {
+    setCreateFiles((prev) => prev.filter((_, i) => i !== idx));
+    setCreateFileCovers((prev) => prev.filter((_, i) => i !== idx));
   }
 
   const totalCards = tasks?.reduce((acc, t) => acc + t.cards.length, 0) ?? 0;
@@ -74,24 +239,9 @@ export default function HomePage() {
     ? new Date(tasks[0].cards[0].fields.创建日期).toISOString().slice(0, 10)
     : "—";
 
-  const filteredTasks = useMemo(() => {
-    if (!tasks) return [];
-    if (!search.trim()) return tasks;
-    const q = search.trim().toLowerCase();
-    return tasks.filter((t) => {
-      if (t.project_name.toLowerCase().includes(q)) return true;
-      if (String(t.task_id).includes(q)) return true;
-      for (const c of t.cards) {
-        if (c.fields?.主题一句话?.toLowerCase().includes(q)) return true;
-        if (c.fields?.ID?.toLowerCase().includes(q)) return true;
-      }
-      return false;
-    });
-  }, [tasks, search]);
-
   const sortedTasks = useMemo(() => {
-    if (!filteredTasks) return [];
-    const arr = [...filteredTasks];
+    if (!tasks) return [];
+    const arr = [...tasks];
     switch (sortBy) {
       case "newest":
         return arr.sort((a, b) => b.task_id - a.task_id);
@@ -102,7 +252,7 @@ export default function HomePage() {
       case "cards":
         return arr.sort((a, b) => b.cards.length - a.cards.length);
     }
-  }, [filteredTasks, sortBy]);
+  }, [tasks, sortBy]);
 
   const openTask = tasks?.find((t) => t.task_id === openTaskId);
 
@@ -119,52 +269,63 @@ export default function HomePage() {
           </div>
           <nav className="flex items-center gap-6 text-eyebrow">
             <a href="#library" className="hover:text-brick transition">LIBRARY · 卡片库</a>
-            <a href="#guide" className="hover:text-brick transition">GUIDE · 使用指南</a>
-            <a href="#install" className="hover:text-brick transition">INSTALL · 安装</a>
+            <button
+              onClick={(e) => { e.preventDefault(); setShowGuide(true); }}
+              className="hover:text-brick transition text-left"
+            >
+              GUIDE · 使用指南
+            </button>
+            <a
+              href="https://bytedance.feishu.cn/base/BQ3gbOvjPa8tG9sAeRycCJSInrh"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 hover:text-brick transition"
+              title="在飞书多维表格中打开"
+            >
+              <span>⤴</span>
+              <span>飞书表格</span>
+            </a>
             <button
               onClick={async () => {
-                const r = await fetch("/api/auth/restart", { method: "POST" });
-                const j = await r.json();
-                if (j.ok) {
-                  const a = document.createElement("a");
-                  a.href = j.verification_url;
-                  a.target = "_blank";
-                  a.click();
-                } else {
-                  alert("重连失败：" + j.error);
+                try {
+                  const r = await fetch("/api/health");
+                  const j = await r.json();
+                  if (j.ok) {
+                    alert(`飞书连接正常\n\n认证方式：${j.mode}\nBase Token：${j.bitableBase?.slice(0, 12)}...`);
+                  } else {
+                    alert("飞书连接异常：" + (j.error || "未知错误"));
+                  }
+                } catch (e: any) {
+                  alert("检测失败：" + e.message);
                 }
               }}
-              className="hover:text-brick transition border border-brick px-2 py-1 text-brick"
-              title="飞书 token 失效时点这里重新授权"
+              className="flex items-center gap-1.5 hover:text-brick transition cursor-help"
+              title="点击检测飞书连接状态"
             >
-              ↻ 飞书重连
+              <span className="w-2 h-2 rounded-full bg-green-500 inline-block"></span>
+              <span>飞书已连接</span>
             </button>
           </nav>
           <div className="flex items-center gap-3">
             <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+              value={createName}
+              onChange={(e) => setCreateName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && setShowCreate(true)}
               placeholder="新任务项目名…"
               className="bg-creamLight border border-ink px-3 py-1.5 text-[13px] font-mono w-44"
             />
             <select
-              value={newStyle}
-              onChange={(e) => setNewStyle(e.target.value)}
+              value={createStyle}
+              onChange={(e) => setCreateStyle(e.target.value)}
               className="bg-creamLight border border-ink px-2 py-1.5 text-[13px] font-mono"
               title="选风格 Mode"
             >
-              <option>Editorial Weekly</option>
-              <option>Editorial Magazine</option>
-              <option>Swiss International</option>
-              <option>Dianyunstyle</option>
-              <option>Neo-Brutalist Yingce</option>
-              <option>Newspaper Weekly</option>
-              <option>Dialogue / Interview</option>
-              <option>Paper Brief</option>
+              {STYLE_OPTIONS.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
             </select>
-            <button onClick={handleCreate} disabled={creating || !newName.trim()} className="btn-primary text-[12px]">
-              {creating ? "提交中…" : "+ 新建任务"}
+            <button onClick={() => setShowCreate(true)} className="btn-primary text-[12px]">
+              + 新建任务
             </button>
             <button onClick={refresh} className="btn-ghost">
               ⟳ 刷新
@@ -205,40 +366,13 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* 错误横幅 (含 OAuth 失效检测) */}
+      {/* 错误横幅 */}
       {err && (
         <div className={`mx-8 md:mx-16 mb-8 p-6 border-2 ${errKind === "auth" ? "border-brick bg-creamLight" : "border-ink bg-creamLight"}`}>
           <p className="font-mono text-[13px] text-brickDeep">
             {errKind === "auth" ? "⚠ 飞书连接失效 · " : "⚠ "}{err}
           </p>
-          {errKind === "auth" ? (
-            <div className="mt-3">
-              <p className="text-inkSoft text-[13px] mb-3">
-                需要重新授权飞书访问权限（之前 OAuth 申请的 scope 不够覆盖 bitable API）。
-              </p>
-              <button
-                onClick={async () => {
-                  alert("正在发起飞书重新授权...");
-                  // 触发 device flow
-                  try {
-                    const r = await fetch("/api/auth/restart", { method: "POST" });
-                    const j = await r.json();
-                    if (j.ok && j.verification_url) {
-                      window.open(j.verification_url, "_blank");
-                    }
-                  } catch (e) {}
-                }}
-                className="btn-primary text-[12px]"
-              >
-                ↻ 重新连接飞书
-              </button>
-              <p className="text-inkSoft text-[12px] mt-3 font-mono">
-                或手动跑：`lark-cli auth login --scope &quot;bitable:app base:app:read base:record:read&quot;`
-              </p>
-            </div>
-          ) : (
-            <p className="text-inkSoft text-[13px] mt-2">点 ⟳ REFRESH 重试，或查 <a href="/api/health" className="underline">/api/health</a>。</p>
-          )}
+          <p className="text-inkSoft text-[13px] mt-2">点 ⟳ REFRESH 重试，或查 <a href="/api/health" className="underline">/api/health</a>。</p>
         </div>
       )}
 
@@ -260,17 +394,9 @@ export default function HomePage() {
             <p className="eyebrow mb-2">—— LIBRARY</p>
             <h2 className="h-section">All tasks</h2>
           </div>
-          <div className="flex items-center gap-3">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="🔍 搜索项目名 / task_id / 卡号 / 主题…"
-              className="bg-creamLight border border-ink px-3 py-1.5 text-[13px] font-mono w-72"
-            />
-            <p className="text-inkSoft text-[13px] whitespace-nowrap">
-              {tasks ? `${sortedTasks.length} / ${tasks.length}` : "loading..."}
-            </p>
-          </div>
+          <p className="text-inkSoft text-[13px] whitespace-nowrap">
+            {tasks ? `${sortedTasks.length} / ${tasks.length}` : "loading..."}
+          </p>
         </div>
 
         <div className="flex items-center gap-2 mb-6">
@@ -300,6 +426,205 @@ export default function HomePage() {
         />
       </section>
 
+      {/* 新建任务弹层 */}
+      {showCreate && (
+        <div
+          className="fixed inset-0 z-50 bg-ink/60 flex items-center justify-center p-6"
+          onClick={() => { if (!creating) setShowCreate(false); }}
+        >
+          <div
+            className="bg-cream w-full max-w-[720px] max-h-[85vh] overflow-y-auto border-2 border-ink p-8 shadow-cardHover"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between mb-6">
+              <div>
+                <p className="eyebrow text-brick">NEW TASK · 新建任务</p>
+                <h2 className="font-serif text-[24px] leading-tight mt-2">填好内容，一键同步到飞书</h2>
+              </div>
+              <button
+                onClick={() => { if (!creating) setShowCreate(false); }}
+                className="w-9 h-9 hover:bg-creamDeep transition flex items-center justify-center"
+              >
+                <span className="font-mono text-[18px]">✕</span>
+              </button>
+            </div>
+
+            {createErr && (
+              <div className="mb-4 px-4 py-2 bg-brick text-cream text-[12px] font-mono">
+                ⚠ {createErr}
+              </div>
+            )}
+
+            {/* 项目名 + 风格 */}
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="eyebrow text-[11px] mb-1 block">项目名 *</label>
+                <input
+                  value={createName}
+                  onChange={(e) => setCreateName(e.target.value)}
+                  placeholder="例如：Patrick Collison · 创业心法"
+                  className="w-full bg-creamLight border border-ink px-3 py-2 font-serif text-[14px]"
+                />
+              </div>
+              <div>
+                <label className="eyebrow text-[11px] mb-1 block">风格 Mode</label>
+                <select
+                  value={createStyle}
+                  onChange={(e) => setCreateStyle(e.target.value)}
+                  className="w-full bg-creamLight border border-ink px-3 py-2 font-mono text-[12px]"
+                >
+                  {STYLE_OPTIONS.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* 标题 */}
+            <div className="mb-4">
+              <label className="eyebrow text-[11px] mb-1 block">标题（文案用）</label>
+              <input
+                value={createTitle}
+                onChange={(e) => setCreateTitle(e.target.value)}
+                placeholder="一句话标题"
+                className="w-full bg-creamLight border border-ink px-3 py-2 font-serif text-[14px]"
+              />
+            </div>
+
+            {/* 正文 */}
+            <div className="mb-4">
+              <label className="eyebrow text-[11px] mb-1 block">总文案</label>
+              <textarea
+                value={createBody}
+                onChange={(e) => setCreateBody(e.target.value)}
+                placeholder="整体写，不分页…"
+                rows={6}
+                className="w-full bg-creamLight border border-ink px-3 py-2 font-mono text-[12px] leading-relaxed"
+              />
+            </div>
+
+            {/* 标签 */}
+            <div className="mb-4">
+              <label className="eyebrow text-[11px] mb-1 block">标签（空格分隔）</label>
+              <input
+                value={createTags}
+                onChange={(e) => setCreateTags(e.target.value)}
+                placeholder="创业 增长 产品"
+                className="w-full bg-creamLight border border-ink px-3 py-2 font-mono text-[12px]"
+              />
+            </div>
+
+            {/* 上传图片/视频 */}
+            <div className="mb-6">
+              <label className="eyebrow text-[11px] mb-1 block">上传图片 / 视频（可选，多张，可追加）</label>
+              <label className="btn-ghost text-[12px] py-2 px-4 inline-block cursor-pointer">
+                + 选择文件
+                <input
+                  type="file"
+                  multiple
+                  accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime,video/webm"
+                  onChange={handleCreateFiles}
+                  className="hidden"
+                />
+              </label>
+              {createFiles.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {createFiles.map((f, i) => (
+                    <div key={i} className="relative group">
+                      <div className="w-16 h-16 border border-creamDeep bg-creamLight flex items-center justify-center overflow-hidden">
+                        {f.type.startsWith("video/") ? (
+                          createFileCovers[i] ? (
+                            <img src={createFileCovers[i]!} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-[10px] font-mono text-inkSoft">▶ {f.name.slice(0, 8)}</span>
+                          )
+                        ) : (
+                          <img src={URL.createObjectURL(f)} alt="" className="w-full h-full object-cover" />
+                        )}
+                      </div>
+                      <button
+                        onClick={() => removeCreateFile(i)}
+                        className="absolute -top-1 -right-1 w-4 h-4 bg-brick text-cream text-[10px] rounded-full"
+                        disabled={uploading}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 提交 */}
+            <div className="flex gap-3 pt-4 border-t border-creamDeep">
+              <button
+                onClick={handleCreate}
+                disabled={creating || !createName.trim()}
+                className="btn-primary flex-1"
+              >
+                {creating ? "创建中…" : "✓ 创建任务"}
+              </button>
+              <button
+                onClick={() => { if (!creating) setShowCreate(false); }}
+                disabled={creating}
+                className="btn-ghost flex-1"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 使用指南弹层 */}
+      {showGuide && (
+        <div
+          className="fixed inset-0 z-50 bg-ink/60 flex items-center justify-center p-6"
+          onClick={() => setShowGuide(false)}
+        >
+          <div
+            className="bg-cream w-full max-w-[640px] max-h-[80vh] overflow-y-auto border-2 border-ink p-8 shadow-cardHover"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between mb-6">
+              <div>
+                <p className="eyebrow text-brick">GUIDE · 使用指南</p>
+                <h2 className="font-serif text-[24px] leading-tight mt-2">Card Studio 怎么用</h2>
+              </div>
+              <button
+                onClick={() => setShowGuide(false)}
+                className="w-9 h-9 hover:bg-creamDeep transition flex items-center justify-center"
+              >
+                <span className="font-mono text-[18px]">✕</span>
+              </button>
+            </div>
+
+            <div className="space-y-5 text-[14px] leading-relaxed">
+              <div>
+                <p className="font-serif text-[18px] mb-1">1. 新建任务</p>
+                <p className="text-inkSoft">顶部输入项目名 → 选风格 → 点「+ 新建任务」→ 填标题、文案、标签、上传图片 → 同步到飞书。</p>
+              </div>
+              <div>
+                <p className="font-serif text-[18px] mb-1">2. 查看 & 编辑</p>
+                <p className="text-inkSoft">点击任务卡片打开详情。左侧是图片轮播，右侧是文案和卡片列表。点 ✎ NAME 改项目名，点 ✎ COPY 改文案。</p>
+              </div>
+              <div>
+                <p className="font-serif text-[18px] mb-1">3. 上传新卡</p>
+                <p className="text-inkSoft">详情页 CARDS 区域点「+ ADD CARD」上传图片或视频，支持多张。拖拽缩略图可以调整顺序。</p>
+              </div>
+              <div>
+                <p className="font-serif text-[18px] mb-1">4. 下载</p>
+                <p className="text-inkSoft">点「⤓ 下载 ZIP」一键打包所有图片和文案。点「⧉ 复制文案」复制到剪贴板。</p>
+              </div>
+              <div>
+                <p className="font-serif text-[18px] mb-1">5. 数据存在哪</p>
+                <p className="text-inkSoft">所有数据实时同步到飞书多维表格：信息图库（存卡片）+ 文案库（存文字）。两边用 task_id 关联。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal */}
       {openTaskId !== null && openTask && (
         <TaskModal
@@ -310,6 +635,14 @@ export default function HomePage() {
           onChanged={() => refresh()}
         />
       )}
+
+      {/* 全屏上传 loading */}
+      <LoadingOverlay
+        visible={uploading}
+        title="上传中"
+        progress={uploadProgress}
+        subtitle={uploadSubtitle}
+      />
     </main>
   );
 }

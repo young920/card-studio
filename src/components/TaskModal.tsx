@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface CardInfo {
   record_id: string;
@@ -9,6 +9,8 @@ interface CardInfo {
   mode: string;
   status: string;
   url: string;
+  cover_url: string;
+  is_video: boolean;
   created: string;
 }
 
@@ -55,6 +57,8 @@ export function TaskModal({
   // upload state
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [settingCover, setSettingCover] = useState(false);
 
   useEffect(() => {
     refreshAll();
@@ -70,7 +74,7 @@ export function TaskModal({
     } catch (e: any) {
       setErr(e.message);
     }
-    // pull copy from tasks list (single round-trip)
+    // 拉文案
     const r2 = await fetch("/api/tasks", { cache: "no-store" });
     const j2 = await r2.json();
     const t = (j2.tasks || []).find((x: any) => x.task_id === taskId);
@@ -81,6 +85,13 @@ export function TaskModal({
       setEditTitle(t.copy.fields.标题 || "");
       setEditBody(t.copy.fields.总文案 || t.copy.fields.正文 || "");
       setEditTags(((t.copy.fields.标签 as string[]) || []).join(" "));
+    } else {
+      setCopyTitle("");
+      setCopyText("");
+      setCopyTags("");
+      setEditTitle("");
+      setEditBody("");
+      setEditTags("");
     }
   }
 
@@ -123,6 +134,8 @@ export function TaskModal({
       setSavedAt(Date.now());
       setTimeout(() => setSavedAt(null), 2000);
       onChanged();
+      // 刷新本页面数据
+      refreshAll();
     } catch (e: any) {
       setSaveErr(e.message);
     } finally {
@@ -131,33 +144,103 @@ export function TaskModal({
   }
 
   async function handleSaveCopy() {
-    if (!copyRecordId) {
-      setSaveErr("该任务暂无文案记录");
-      return;
-    }
     setSaving(true);
     setSaveErr(null);
     try {
-      const r = await fetch(`/api/copy/${copyRecordId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fields: {
+      let recordId = copyRecordId;
+      // 没有文案记录就新建一条
+      if (!recordId) {
+        const r = await fetch("/api/copy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            task_id: taskId,
             标题: editTitle.trim(),
             总文案: editBody,
             正文: editBody,
             标签: editTags.trim().split(/\s+/).filter(Boolean),
-          },
-        }),
-      });
-      const j = await r.json();
-      if (!j.ok) throw new Error(j.error);
+            项目名: editName.trim() || projectName,
+          }),
+        });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error);
+        recordId = j.record_id;
+      } else {
+        const r = await fetch(`/api/copy/${recordId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fields: {
+              标题: editTitle.trim(),
+              总文案: editBody,
+              正文: editBody,
+              标签: editTags.trim().split(/\s+/).filter(Boolean),
+            },
+          }),
+        });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error);
+      }
+      setCopyTitle(editTitle.trim());
+      setCopyText(editBody);
+      setCopyTags(editTags.trim());
       setEditMode("view");
+      setSavedAt(Date.now());
+      setTimeout(() => setSavedAt(null), 2000);
       onChanged();
     } catch (e: any) {
       setSaveErr(e.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSetCoverFromVideo() {
+    const video = videoRef.current;
+    if (!video || !active) return;
+    setSettingCover(true);
+    try {
+      const canvas = document.createElement("canvas");
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      const scale = Math.min(1, 720 / w);
+      canvas.width = Math.floor(w * scale);
+      canvas.height = Math.floor(h * scale);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("canvas 不可用");
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+
+      // 转 file 上传
+      const bin = atob(dataUrl.split(",")[1]);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const file = new File([bytes], `${active.card_no}-cover.jpg`, { type: "image/jpeg" });
+
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("parent_type", "bitable_image");
+      fd.append("file_name", `${active.card_no}-cover.jpg`);
+
+      // 流式代理上传拿 file_token
+      const up = await fetch("/api/upload/proxy", { method: "POST", body: fd });
+      const upJ = await up.json();
+      if (!upJ.ok) throw new Error(upJ.error);
+
+      // 写回卡片的缩略图字段
+      const r = await fetch(`/api/cards/${active.record_id}/cover`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cover_token: upJ.file_token }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error);
+
+      await refreshAll();
+    } catch (e: any) {
+      alert("设置封面失败：" + e.message);
+    } finally {
+      setSettingCover(false);
     }
   }
 
@@ -239,24 +322,30 @@ export function TaskModal({
       handleCardDragEnd();
       return;
     }
-    // reorder local
+    // 本地先更新
     const reordered = [...cards!];
     const [moved] = reordered.splice(dragIdx, 1);
     reordered.splice(dropIdx, 0, moved);
-    setCards(reordered);
+    // 重新编号 card_no
+    const renumbered = reordered.map((c, i) => ({
+      ...c,
+      card_no: "card-" + String(i).padStart(2, "0"),
+    }));
+    setCards(renumbered);
     handleCardDragEnd();
-    // persist to 飞书
+    // 同步到飞书（重新排序后更新每张的卡号）
     try {
       const res = await fetch(`/api/tasks/${taskId}/reorder`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardIds: reordered.map((c) => c.record_id) }),
+        body: JSON.stringify({ cardIds: renumbered.map((c) => c.record_id) }),
       });
       const j = await res.json();
       if (!j.ok) throw new Error(j.error);
       onChanged();
     } catch (err: any) {
       console.error("reorder failed", err);
+      setErr("排序保存失败：" + err.message);
     }
   }
 
@@ -277,11 +366,31 @@ export function TaskModal({
           {!cards && !err && <p className="text-terminalFg font-mono text-[13px]">loading cards…</p>}
           {active && (
             <div className="w-full">
-              <img
-                src={active.url}
-                alt={active.topic}
-                className="w-full max-h-[70vh] object-contain"
-              />
+              {active.is_video ? (
+                <>
+                  <video
+                    ref={videoRef}
+                    src={active.url}
+                    controls
+                    playsInline
+                    className="w-full max-h-[70vh] object-contain"
+                    poster={active.cover_url || undefined}
+                  />
+                  <button
+                    className="absolute bottom-12 right-4 px-3 py-1.5 bg-cream/90 text-ink text-[11px] font-mono rounded hover:bg-brick hover:text-cream transition"
+                    onClick={handleSetCoverFromVideo}
+                    disabled={settingCover}
+                  >
+                    {settingCover ? "设置中…" : "⎙ 设为封面"}
+                  </button>
+                </>
+              ) : (
+                <img
+                  src={active.url}
+                  alt={active.topic}
+                  className="w-full max-h-[70vh] object-contain"
+                />
+              )}
               <button
                 className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-cream text-ink flex items-center justify-center hover:bg-brick hover:text-cream transition"
                 onClick={() => setActiveIdx((i) => Math.max(i - 1, 0))}
@@ -338,14 +447,15 @@ export function TaskModal({
                     <button onClick={handleSaveTitle} disabled={saving} className="btn-primary text-[12px] py-1.5 px-3">
                       {saving ? "保存中…" : "保存"}
                     </button>
-                    <button onClick={() => setEditMode("view")} className="btn-ghost text-[12px] py-1.5 px-3">
+                    <button onClick={() => { setEditMode("view"); setEditName(projectName); }} className="btn-ghost text-[12px] py-1.5 px-3">
                       取消
                     </button>
                     {saveErr && <span className="text-brick font-mono text-[12px]">⚠ {saveErr}</span>}
                   </div>
                 </div>
               ) : (
-                <h2 className="font-serif text-[28px] leading-tight mt-2">{copyTitle || projectName || `Task ${taskId}`}</h2>
+                // 显示项目名（不是 copy 的标题）
+                <h2 className="font-serif text-[28px] leading-tight mt-2">{projectName || `Task ${taskId}`}</h2>
               )}
             </div>
             <button onClick={onClose} className="w-9 h-9 hover:bg-creamDeep transition flex items-center justify-center">
@@ -353,61 +463,35 @@ export function TaskModal({
             </button>
           </div>
 
-          {/* Tags + Live Preview */}
           {editMode === "edit-copy" ? (
             <div className="mb-6">
               <p className="eyebrow mb-2">EDIT COPY</p>
-              <div className="grid grid-cols-2 gap-4">
-                {/* Left: edit form */}
-                <div>
-                  <input
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    placeholder="标题"
-                    className="w-full bg-creamLight border border-ink px-3 py-2 mb-2 font-serif text-[16px]"
-                  />
-                  <textarea
-                    value={editBody}
-                    onChange={(e) => setEditBody(e.target.value)}
-                    placeholder="总文案（长文不分页）"
-                    rows={12}
-                    className="w-full bg-creamLight border border-ink px-3 py-2 font-mono text-[12px] leading-relaxed"
-                  />
-                  <input
-                    value={editTags}
-                    onChange={(e) => setEditTags(e.target.value)}
-                    placeholder="标签（空格分隔）"
-                    className="w-full bg-creamLight border border-ink px-3 py-2 mt-2 font-mono text-[12px]"
-                  />
-                </div>
-                {/* Right: live preview */}
-                <div className="border border-creamDeep p-4 bg-terminalBg overflow-y-auto max-h-[50vh]">
-                  <p className="eyebrow mb-2 text-brick">PREVIEW · 实时预览</p>
-                  {editTitle && (
-                    <h3 className="font-serif text-[18px] leading-tight mb-3">{editTitle}</h3>
-                  )}
-                  {editBody && (
-                    <p className="text-[13px] leading-[1.65] whitespace-pre-wrap text-ink">
-                      {editBody}
-                    </p>
-                  )}
-                  {editTags.trim() && (
-                    <div className="flex flex-wrap gap-1.5 mt-3">
-                      {editTags.trim().split(/\s+/).filter(Boolean).map((t) => (
-                        <span key={t} className="px-2 py-0.5 bg-creamLight border border-creamDeep text-[11px] font-mono">{t}</span>
-                      ))}
-                    </div>
-                  )}
-                  {!editTitle && !editBody && !editTags.trim() && (
-                    <p className="text-inkSoft text-[12px] italic">输入内容后这里会实时显示预览…</p>
-                  )}
-                </div>
+              <div>
+                <input
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  placeholder="标题"
+                  className="w-full bg-creamLight border border-ink px-3 py-2 mb-2 font-serif text-[16px]"
+                />
+                <textarea
+                  value={editBody}
+                  onChange={(e) => setEditBody(e.target.value)}
+                  placeholder="总文案（长文不分页）"
+                  rows={12}
+                  className="w-full bg-creamLight border border-ink px-3 py-2 font-mono text-[12px] leading-relaxed"
+                />
+                <input
+                  value={editTags}
+                  onChange={(e) => setEditTags(e.target.value)}
+                  placeholder="标签（空格分隔）"
+                  className="w-full bg-creamLight border border-ink px-3 py-2 mt-2 font-mono text-[12px]"
+                />
               </div>
               <div className="flex gap-2 mt-3">
                 <button onClick={handleSaveCopy} disabled={saving} className="btn-primary text-[12px] py-1.5 px-3">
                   {saving ? "保存中…" : "保存"}
                 </button>
-                <button onClick={() => setEditMode("view")} className="btn-ghost text-[12px] py-1.5 px-3">
+                <button onClick={() => { setEditMode("view"); setEditTitle(copyTitle); setEditBody(copyText); setEditTags(copyTags); }} className="btn-ghost text-[12px] py-1.5 px-3">
                   取消
                 </button>
                 {saveErr && <span className="text-brick font-mono text-[12px]">⚠ {saveErr}</span>}
@@ -445,7 +529,7 @@ export function TaskModal({
                 {uploading ? "上传中…" : "+ ADD CARD"}
                 <input
                   type="file"
-                  accept="image/png,image/jpeg,image/webp"
+                  accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime,video/webm"
                   onChange={handleUploadNewCard}
                   className="hidden"
                   disabled={uploading}
@@ -477,7 +561,15 @@ export function TaskModal({
                         }
                       `}
                     >
-                      <img src={c.url} alt={c.card_no} className="w-full h-full object-cover" />
+                      {c.is_video ? (
+                        c.cover_url ? (
+                          <img src={c.cover_url} alt={c.card_no} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-creamDeep text-inkSoft text-[10px]">▶</div>
+                        )
+                      ) : (
+                        <img src={c.url} alt={c.card_no} className="w-full h-full object-cover" />
+                      )}
                     </button>
                     <button
                       onClick={() => handleDeleteCard(c.record_id)}
@@ -492,6 +584,7 @@ export function TaskModal({
             {active && (
               <p className="text-[12px] text-inkSoft mt-2 italic">{active.card_no} · {active.topic}</p>
             )}
+            <p className="text-[10px] text-inkSoft mt-1 font-mono">💡 拖拽缩略图可调整顺序</p>
           </div>
 
           {/* Actions */}

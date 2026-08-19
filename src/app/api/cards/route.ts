@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createCard, nextAutoNumber, getTenantAccessToken } from "@/lib/feishu";
+import { createCard, nextAutoNumber, getTenantAccessToken, BITABLE_BASE_TOKEN, buildMultipartBody } from "@/lib/feishu";
 
 export const dynamic = "force-dynamic";
+export const runtime = "edge";
 
-/** Upload a PNG to a task's first card (or create new card if no 卡号 provided). */
+/** 上传图片/视频到飞书多维表格附件字段，并创建卡片记录 */
 export async function POST(req: NextRequest) {
   try {
     const form = await req.formData();
@@ -22,33 +23,28 @@ export async function POST(req: NextRequest) {
       tid = await nextAutoNumber(0);
     }
 
-    // 2. Upload file to bitable attachment field via /drive/v1/medias/upload_all
+    // 2. 上传到飞书 drive
     const token = await getTenantAccessToken();
-    const buf = Buffer.from(await file.arrayBuffer());
-    const blob = new Blob([buf], { type: file.type || "image/png" });
-    const fd = new FormData();
-    fd.append("file_name", file.name || `${card_no}.png`);
-    fd.append("parent_type", "bitable_image");
-    fd.append("parent_node", process.env.BITABLE_BASE_TOKEN || "BQ3gbOvjPa8tG9sAeRycCJSInrh");
-    fd.append("file", blob, file.name || `${card_no}.png`);
+    const fileData = new Uint8Array(await file.arrayBuffer());
+    const isVideo = file.type.startsWith("video/");
+    const parentType = isVideo ? "bitable_file" : "bitable_image";
+    const fileName = file.name || `${card_no}.${isVideo ? "mp4" : "png"}`;
 
-    const upResp = await fetch("https://open.feishu.cn/open-apis/drive/v1/medias/upload_all", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-      body: fd,
+    const fileToken = await uploadBitableAttachment({
+      token,
+      fileName,
+      parentType,
+      parentNode: process.env.BITABLE_BASE_TOKEN || BITABLE_BASE_TOKEN,
+      fileData,
+      fileType: file.type,
     });
-    const upJson: any = await upResp.json();
-    if (upJson.code !== 0) {
-      return NextResponse.json({ ok: false, error: `upload failed: ${upJson.msg}` }, { status: 500 });
-    }
-    const fileToken = upJson.data.file_token;
 
-    // 3. Create card record with attachment
+    // 3. 创建卡片记录
     const fields: Record<string, any> = {
-      task_id: tid,
+      task_id: Number(tid),
       卡号: card_no,
-      主题一句话: topic,
-      "风格 Mode": mode,
+      主题一句话: topic || `${projectName} · ${card_no}`,
+      "风格 Mode": mode || "Editorial Weekly",
       状态: "已完成",
       项目名: projectName,
       原图: [{ file_token: fileToken }],
@@ -59,4 +55,43 @@ export async function POST(req: NextRequest) {
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
   }
+}
+
+async function uploadBitableAttachment(opts: {
+  token: string;
+  fileName: string;
+  parentType: string;
+  parentNode: string;
+  fileData: Uint8Array;
+  fileType: string;
+}): Promise<string> {
+  const { token, fileName, parentType, parentNode, fileData, fileType } = opts;
+
+  const { body, contentType } = buildMultipartBody(
+    {
+      file_name: fileName,
+      parent_type: parentType,
+      parent_node: parentNode,
+      size: String(fileData.length),
+    },
+    "file",
+    fileName,
+    fileData,
+    fileType || "application/octet-stream"
+  );
+
+  const resp = await fetch("https://open.feishu.cn/open-apis/drive/v1/medias/upload_all", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": contentType,
+    },
+    body,
+  });
+
+  const json: any = await resp.json();
+  if (json.code !== 0) {
+    throw new Error(`upload failed: ${json.msg} (code ${json.code})`);
+  }
+  return json.data.file_token;
 }

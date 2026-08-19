@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface Card { record_id: string; fields: Record<string, any>; }
 interface Task {
@@ -13,7 +13,9 @@ interface Task {
 export function TaskCard({ task, index, onOpen }: { task: Task; index: number; onOpen: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const firstCard = task.cards[0];
-  const cover = (firstCard?.fields?.原图 as any[]) || [];
+  const original = (firstCard?.fields?.原图 as any[]) || [];
+  const thumb = (firstCard?.fields?.缩略图 as any[]) || [];
+  const cover = thumb.length > 0 ? thumb : original; // 有缩略图用缩略图，没有用原图
   const tags = (task.copy?.fields?.标签 as string[]) || [];
   const updated = (firstCard?.fields?.创建日期 as string) || "";
 
@@ -108,13 +110,27 @@ export function TaskCard({ task, index, onOpen }: { task: Task; index: number; o
 }
 
 function BitableImage({ fileToken, alt }: { fileToken: string; alt: string }) {
-  const [url, setUrl] = useState<string | null>(null);
-  useState(() => {
-    fetch(`/api/img/${fileToken}`)
-      .then((r) => r.json())
-      .then((j) => setUrl(j.url))
-      .catch(() => {});
-  });
-  if (!url) return <div className="w-full h-full bg-creamDeep" />;
-  return <img src={url} alt={alt} className="w-full h-full object-cover" />;
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(false);
+
+  if (error) {
+    return (
+      <div className="w-full h-full bg-creamDeep flex items-center justify-center text-inkSoft font-mono text-[11px]">
+        加载失败
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative w-full h-full">
+      {!loaded && <div className="absolute inset-0 bg-creamDeep animate-pulse" />}
+      <img
+        src={`/api/img/${fileToken}`}
+        alt={alt}
+        className={`w-full h-full object-cover transition-opacity ${loaded ? 'opacity-100' : 'opacity-0'}`}
+        onLoad={() => setLoaded(true)}
+        onError={() => setError(true)}
+      />
+    </div>
+  );
 }

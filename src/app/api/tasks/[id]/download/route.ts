@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { listCards, listCopy } from "@/lib/feishu";
 import { buildTaskZip } from "@/lib/zip";
 
+
+
 export const dynamic = "force-dynamic";
+export const runtime = "edge";
 
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {

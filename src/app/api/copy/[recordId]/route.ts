@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateCopyFields, deleteCopy } from "@/lib/feishu";
 
+
+
 export const dynamic = "force-dynamic";
+export const runtime = "edge";
 
 export async function PUT(req: NextRequest, ctx: { params: Promise<{ recordId: string }> }) {
   try {

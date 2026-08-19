@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
+
+
 export const dynamic = "force-dynamic";
+export const runtime = "edge";
 
 /** 最小化测试路由 — 只验证 feishu.ts 能不能加载、token 能不能拿 */
 export async function GET() {

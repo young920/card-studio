@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
-import archiver from "archiver";
 import { listCards, listCopy, getAttachmentBuffer, groupIntoTasks } from "@/lib/feishu";
+import { zipFiles } from "@/lib/zip";
 
 export const dynamic = "force-dynamic";
-// 关闭缓存, 每次现拉
-export const runtime = "nodejs";
+// Edge Runtime — Cloudflare Pages 兼容
+export const runtime = "edge";
 
 /** GET /api/tasks/[id]/zip — 打包整个 task 的资源 (原图 + README.md) */
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -18,81 +18,63 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const task = tasks.find((t) => t.task_id === taskId);
   if (!task) return new Response("task not found", { status: 404 });
 
-  // 2. 创建 zip stream (用 transform stream, archiver 直接 pipe)
-  const archive = archiver("zip", { zlib: { level: 6 } });
+  // 2. 收集所有文件到内存（fflate 纯 JS zip）
+  const files: { name: string; data: Uint8Array | string }[] = [];
 
-  // 收集所有 chunks → Uint8Array → Response
-  const chunks: Uint8Array[] = [];
-  archive.on("data", (c: Buffer) => chunks.push(new Uint8Array(c)));
+  // 3. README.md
+  files.push({ name: "README.md", data: generateReadme(task) });
 
-  const done = new Promise<void>((resolve, reject) => {
-    archive.on("end", () => resolve());
-    archive.on("error", (err) => reject(err));
-  });
-
-  // 3. README.md (转 Buffer.from utf-8, 强制是 Uint8Array)
-  const readme = generateReadme(task);
-  archive.append(Buffer.from(readme, "utf-8"), { name: "README.md" });
-
-  // 4. 拉所有原图 (走 records 现成 url, 飞书直接给完整下载链接)
+  // 4. 拉所有原图
   for (const card of task.cards) {
     const att = card.fields?.原图?.[0] || card.fields?.缩略图?.[0];
     if (!att?.url) continue;
     try {
-      const buf = await getAttachmentBuffer(card.record_id, att.file_token, att.name || `${card.fields?.卡号}.png`);
-      archive.append(Buffer.from(buf), { name: `${card.fields?.卡号 || card.record_id}.png` });
-    } catch (e: any) {
-      archive.append(
-        Buffer.from(`# 下载失败\n${e?.message || e}\n`, "utf-8"),
-        { name: `${card.fields?.卡号 || card.record_id}.ERROR.md` }
+      const buf = await getAttachmentBuffer(
+        card.record_id,
+        att.file_token,
+        att.name || `${card.fields?.卡号}.png`
       );
+      files.push({
+        name: `${card.fields?.卡号 || card.record_id}.png`,
+        data: new Uint8Array(buf),
+      });
+    } catch (e: any) {
+      files.push({
+        name: `${card.fields?.卡号 || card.record_id}.ERROR.md`,
+        data: `# 下载失败\n${e?.message || e}\n`,
+      });
     }
   }
 
-  // 5. 文案 (用纯英文名避免 cp437 中文乱码)
+  // 5. 文案
   if (task.copy) {
     const f = task.copy.fields;
-    archive.append(
-      Buffer.from(
-        [
-          `# ${f.标题 || task.project_name}`,
-          ``,
-          `**字数**：${f.字数 || "?"}`,
-          ``,
-          `## 标签`,
-          f.标签 || "",
-          ``,
-          `## 总文案 (整体写不分页)`,
-          f.总文案 || "",
-          ``,
-          `## 正文 (分页)`,
-          f.正文 || "",
-        ].join("\n"),
-        "utf-8"
-      ),
-      { name: "xhs-copy.md" }
-    );
+    files.push({
+      name: "xhs-copy.md",
+      data: [
+        `# ${f.标题 || task.project_name}`,
+        ``,
+        `**字数**：${f.字数 || "?"}`,
+        ``,
+        `## 标签`,
+        f.标签 || "",
+        ``,
+        `## 总文案 (整体写不分页)`,
+        f.总文案 || "",
+        ``,
+        `## 正文 (分页)`,
+        f.正文 || "",
+      ].join("\n"),
+    });
   }
 
-  // 6. finalize
-  void archive.finalize();
-  await done;
-
-  // 7. 合并 chunks → Blob
-  const total = chunks.reduce((s, c) => s + c.length, 0);
-  const merged = new Uint8Array(total);
-  let offset = 0;
-  for (const c of chunks) {
-    merged.set(c, offset);
-    offset += c.length;
-  }
+  // 6. 打包
+  const zipBuf = await zipFiles(files);
 
   const safeName = (task.project_name || `task-${taskId}`).replace(/[\\/:*?"<>|]/g, "-");
-
-  // RFC 5987 编码中文文件名 (避免 header ByteString 报错)
   const encodedName = encodeURIComponent(safeName);
 
-  return new Response(merged, {
+  return new Response(zipBuf, {
     headers: {
       "Content-Type": "application/zip",
       "Content-Disposition": `attachment; filename="CardStudio-task-${taskId}.zip"; filename*=UTF-8''${encodedName}.zip`,

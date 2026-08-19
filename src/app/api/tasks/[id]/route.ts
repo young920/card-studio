@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { listCards, updateCardFields } from "@/lib/feishu";
 import { BITABLE_BASE_TOKEN, TABLE_GRAPHS } from "@/lib/feishu";
 
+
+
 export const dynamic = "force-dynamic";
+export const runtime = "edge";
 
 /** GET single task: 返回 cards 列表 (供 modal 打开) */
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -16,15 +19,18 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
     // 把 file_token 反代 URL 加上 (前端 <img src={c.url}> 直接用)
     const cards = taskCards.map((c) => {
-      const arr = c.fields?.原图 || c.fields?.缩略图 || [];
-      const first = arr[0];
+      const original = c.fields?.原图?.[0];
+      const thumb = c.fields?.缩略图?.[0];
+      const isVideo = !!original && (original.type === "bitable_file" || /\.(mp4|mov|webm|m4v|avi)$/i.test(original.filename || ""));
       return {
         record_id: c.record_id,
         card_no: c.fields?.卡号 || "",
         topic: c.fields?.主题一句话 || "",
         mode: c.fields?.["风格 Mode"] || "",
         status: c.fields?.状态 || "",
-        url: first ? `/api/img/${first.file_token}` : "",
+        url: original ? `/api/img/${original.file_token}` : "",
+        cover_url: thumb ? `/api/img/${thumb.file_token}` : (isVideo && original ? `/api/img/${original.file_token}?cover=1` : ""),
+        is_video: isVideo,
         created: c.fields?.创建日期 ? new Date(c.fields.创建日期).toISOString() : "",
         fields: c.fields,
       };
