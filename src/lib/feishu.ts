@@ -19,8 +19,8 @@ export async function getTenantAccessToken(): Promise<string> {
     return _cachedTenantToken;
   }
 
-  const appId = process.env.FEISHU_APP_ID || "";
-  const appSecret = process.env.FEISHU_APP_SECRET || "";
+  const appId = process.env.FEISHU_APP_ID || "cli_aaf5646a44789bcf";
+  const appSecret = process.env.FEISHU_APP_SECRET || "lYRSnGkS3v7O0a6GkMbYjWpB0X1jGnzS";
 
   if (!appId || !appSecret) {
     throw new Error("飞书应用凭证未配置（FEISHU_APP_ID / FEISHU_APP_SECRET）");
