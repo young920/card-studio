@@ -270,7 +270,7 @@ export default function HomePage() {
             <div className="w-8 h-8 bg-brick rounded-sm flex items-center justify-center">
               <span className="text-cream font-mono text-[12px] font-bold">CS</span>
             </div>
-            <span className="font-serif text-[18px] tracking-tight">Card Studio</span>
+            <span className="font-serif text-[18px] tracking-tight">Card Atelier</span>
           </div>
           <nav className="flex items-center gap-6 text-eyebrow">
             <a href="#library" className="hover:text-brick transition">LIBRARY · 卡片库</a>
@@ -343,10 +343,10 @@ export default function HomePage() {
         <div>
           <p className="eyebrow mb-4">—— ALL TASKS · 全部任务</p>
           <h1 className="h-display">
-            信息图卡的幕后工作台
+            整理过的知识，都在这一张张图里
           </h1>
           <p className="mt-6 text-inkSoft max-w-md leading-relaxed">
-            浏览每个项目、编辑文案、上传新卡、打包下载，一键同步到飞书多维表格。
+            浏览每个项目、查看文案、下载原图合集，内容实时同步到飞书多维表格。
           </p>
         </div>
 
@@ -592,7 +592,7 @@ export default function HomePage() {
             <div className="flex items-start justify-between mb-6">
               <div>
                 <p className="eyebrow text-brick">GUIDE · 使用指南</p>
-                <h2 className="font-serif text-[24px] leading-tight mt-2">Card Studio 怎么用</h2>
+                <h2 className="font-serif text-[24px] leading-tight mt-2">Card Atelier 怎么用</h2>
               </div>
               <button
                 onClick={() => setShowGuide(false)}

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Card Studio",
+  title: "Card Atelier",
   description: "A back-of-house studio for your info-graphic cards and 小红书 copy.",
 };
 
