@@ -604,15 +604,22 @@ export function TaskModal({
                         }
                       `}
                     >
-                      {c.is_video ? (
-                        c.cover_url ? (
-                          <img src={c.cover_url} alt={c.card_no} className="w-full h-full object-cover" />
+                      <div className="relative w-full h-full">
+                        {c.is_video ? (
+                          c.cover_url ? (
+                            <img src={c.cover_url} alt={c.card_no} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-creamDeep text-inkSoft text-[10px]">▶</div>
+                          )
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center bg-creamDeep text-inkSoft text-[10px]">▶</div>
-                        )
-                      ) : (
-                        <img src={c.url} alt={c.card_no} className="w-full h-full object-cover" />
-                      )}
+                          <img src={c.url} alt={c.card_no} className="w-full h-full object-cover" />
+                        )}
+                        {c.is_video && (
+                          <div className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-ink/70 text-cream flex items-center justify-center">
+                            <span className="text-[6px] ml-0.5">▶</span>
+                          </div>
+                        )}
+                      </div>
                     </button>
                     <button
                       onClick={() => handleDeleteCard(c.record_id)}

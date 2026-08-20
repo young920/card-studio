@@ -80,12 +80,17 @@ export function TaskCard({ task, index, onOpen }: { task: Task; index: number; o
 
       {/* Cover preview */}
       <div className="px-3">
-        <div className="aspect-[4/5] bg-creamDeep border border-creamDeep overflow-hidden">
+        <div className="aspect-[4/5] bg-creamDeep border border-creamDeep overflow-hidden relative">
           {cover[0] ? (
             <BitableImage fileToken={cover[0].file_token} alt={task.project_name} />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-inkSoft font-mono text-[11px]">
               NO COVER
+            </div>
+          )}
+          {isVideo && (
+            <div className="absolute top-2 right-2 w-7 h-7 rounded-full bg-ink/70 text-cream flex items-center justify-center">
+              <span className="text-[10px] ml-0.5">▶</span>
             </div>
           )}
         </div>
