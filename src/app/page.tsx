@@ -268,7 +268,7 @@ export default function HomePage() {
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-brick rounded-sm flex items-center justify-center">
-              <span className="text-cream font-mono text-[12px] font-bold">CS</span>
+              <span className="text-cream font-mono text-[12px] font-bold">CA</span>
             </div>
             <span className="font-serif text-[18px] tracking-tight">Card Atelier</span>
           </div>

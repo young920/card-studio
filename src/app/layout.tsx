@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Card Atelier",
-  description: "A back-of-house studio for your info-graphic cards and 小红书 copy.",
+  description: "整理过的知识，都在这一张张图里 — Card Atelier 信息图卡片库。",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
