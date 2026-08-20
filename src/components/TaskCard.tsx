@@ -15,7 +15,16 @@ export function TaskCard({ task, index, onOpen }: { task: Task; index: number; o
   const firstCard = task.cards[0];
   const original = (firstCard?.fields?.原图 as any[]) || [];
   const thumb = (firstCard?.fields?.缩略图 as any[]) || [];
-  const cover = original.length > 0 ? original : thumb; // 优先用原图，没有再用缩略图
+  const orig0 = original[0];
+  const isVideo = !!(orig0 && (
+    (orig0.type && String(orig0.type).startsWith("video/")) ||
+    orig0.type === "bitable_file" ||
+    /\.(mp4|mov|webm|m4v|avi)$/i.test(orig0.filename || "")
+  ));
+  // 视频优先用缩略图当封面；图片优先用原图
+  const cover = isVideo
+    ? (thumb.length > 0 ? thumb : original)
+    : (original.length > 0 ? original : thumb);
   const tags = (task.copy?.fields?.标签 as string[]) || [];
   const updated = (firstCard?.fields?.创建日期 as string) || "";
 

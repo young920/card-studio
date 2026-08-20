@@ -21,7 +21,11 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     const cards = taskCards.map((c) => {
       const original = c.fields?.原图?.[0];
       const thumb = c.fields?.缩略图?.[0];
-      const isVideo = !!original && (original.type === "bitable_file" || /\.(mp4|mov|webm|m4v|avi)$/i.test(original.filename || ""));
+      const isVideo = !!original && (
+        (original.type && String(original.type).startsWith("video/")) ||
+        original.type === "bitable_file" ||
+        /\.(mp4|mov|webm|m4v|avi)$/i.test(original.filename || "")
+      );
       return {
         record_id: c.record_id,
         card_no: c.fields?.卡号 || "",
