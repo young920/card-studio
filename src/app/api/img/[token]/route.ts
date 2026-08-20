@@ -84,7 +84,7 @@ function serveImageBuffer(buf: ArrayBuffer, contentType: string, contentDisposit
   if (!ct || ct === "application/octet-stream") {
     const bytes = new Uint8Array(buf);
     if (bytes[0] === 0xff && bytes[1] === 0xd8) ct = "image/jpeg";
-    else if (bytes[0] === 0x47 && bytes[0] === 0x49) ct = "image/gif";
+    else if (bytes[0] === 0x47 && bytes[1] === 0x49) ct = "image/gif";
     else if (bytes[0] === 0x52 && bytes[1] === 0x49) ct = "image/webp";
     else if (bytes[0] === 0x89 && bytes[1] === 0x50) ct = "image/png";
     else ct = "application/octet-stream";
