@@ -195,6 +195,37 @@ export function TaskModal({
     }
   }
 
+  async function handleUploadCover(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !active) return;
+    setSettingCover(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("parent_type", "bitable_image");
+      fd.append("file_name", `${active.card_no}-cover.jpg`);
+
+      const up = await fetch("/api/upload/proxy", { method: "POST", body: fd });
+      const upJ = await up.json();
+      if (!upJ.ok) throw new Error(upJ.error);
+
+      const r = await fetch(`/api/cards/${active.record_id}/cover`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cover_token: upJ.file_token }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error);
+
+      await refreshAll();
+    } catch (e: any) {
+      alert("上传封面失败：" + e.message);
+    } finally {
+      setSettingCover(false);
+      e.target.value = "";
+    }
+  }
+
   async function handleSetCoverFromVideo() {
     const video = videoRef.current;
     if (!video || !active) return;
@@ -376,13 +407,25 @@ export function TaskModal({
                     className="w-full max-h-[70vh] object-contain"
                     poster={active.cover_url || undefined}
                   />
-                  <button
-                    className="absolute bottom-12 right-4 px-3 py-1.5 bg-cream/90 text-ink text-[11px] font-mono rounded hover:bg-brick hover:text-cream transition"
-                    onClick={handleSetCoverFromVideo}
-                    disabled={settingCover}
-                  >
-                    {settingCover ? "设置中…" : "⎙ 设为封面"}
-                  </button>
+                  <div className="absolute bottom-12 right-4 flex gap-2">
+                    <label className="px-3 py-1.5 bg-cream/90 text-ink text-[11px] font-mono rounded hover:bg-brick hover:text-cream transition cursor-pointer">
+                      ⬆ 上传封面
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        onChange={handleUploadCover}
+                        className="hidden"
+                        disabled={settingCover}
+                      />
+                    </label>
+                    <button
+                      className="px-3 py-1.5 bg-cream/90 text-ink text-[11px] font-mono rounded hover:bg-brick hover:text-cream transition"
+                      onClick={handleSetCoverFromVideo}
+                      disabled={settingCover}
+                    >
+                      {settingCover ? "设置中…" : "⎙ 当前帧设封面"}
+                    </button>
+                  </div>
                 </>
               ) : (
                 <img
