@@ -17,64 +17,98 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   try {
     const token = await getTenantAccessToken();
 
-    // 先拿临时下载链接（统一入口，支持图片和视频）
-    const tmpResp = await fetch(
-      "https://open.feishu.cn/open-apis/drive/v1/medias/batch_get_tmp_download_url",
+    // 方法 1: 直接 download（bitable_image 图片附件等）
+    let resp = await fetch(
+      `https://open.feishu.cn/open-apis/drive/v1/medias/${fileToken}/download`,
       {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ file_tokens: [fileToken] }),
+        headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
       }
     );
-    const tmpJson: any = await tmpResp.json();
-    const item = tmpJson.data?.tmp_download_urls?.[0];
-    const tmpUrl = item?.tmp_download_url;
-    if (!tmpUrl) {
-      return new Response(`下载链接获取失败: ${tmpJson.msg || tmpJson.code}`, { status: 502 });
+
+    if (!resp.ok) {
+      // 方法 2: 拿临时下载链接（兼容 bitable_file / 视频等）
+      const tmpResp = await fetch(
+        "https://open.feishu.cn/open-apis/drive/v1/medias/batch_get_tmp_download_url",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ file_tokens: [fileToken] }),
+          cache: "no-store",
+        }
+      );
+      const tmpJson: any = await tmpResp.json();
+      const item = tmpJson.data?.tmp_download_urls?.[0];
+      const url = item?.tmp_download_url;
+      if (!url) {
+        return new Response(`下载链接获取失败: ${tmpJson.msg || tmpJson.code}`, { status: 502 });
+      }
+      resp = await fetch(url);
+      if (!resp.ok) {
+        return new Response("文件下载失败: " + resp.status, { status: 502 });
+      }
     }
 
-    const fileName = item?.file_name || "";
-    const isVideo = /\.(mp4|mov|webm|m4v|avi)$/i.test(fileName);
-
-    // 转发请求
-    const forwardHeaders: Record<string, string> = {};
-    if (rangeHeader) forwardHeaders["Range"] = rangeHeader;
-
-    const resp = await fetch(tmpUrl, { headers: forwardHeaders });
-    if (!resp.ok && resp.status !== 206) {
-      return new Response("文件下载失败: " + resp.status, { status: 502 });
-    }
-
+    const buf = await resp.arrayBuffer();
     const contentType = resp.headers.get("content-type") || "";
     const contentDisp = resp.headers.get("content-disposition") || "";
+    const totalBytes = buf.byteLength;
 
-    // 视频：stream 转发，支持 Range
-    if (isVideo || contentType.startsWith("video/")) {
-      const headers = new Headers();
-      headers.set("Content-Type", contentType || "video/mp4");
-      const cl = resp.headers.get("content-length");
-      if (cl) headers.set("Content-Length", cl);
-      const cr = resp.headers.get("content-range");
-      if (cr) headers.set("Content-Range", cr);
-      const ar = resp.headers.get("accept-ranges");
-      headers.set("Accept-Ranges", ar || "bytes");
-      if (contentDisp) headers.set("Content-Disposition", contentDisp);
-      headers.set("Cache-Control", "public, max-age=86400");
+    // 判断是否视频
+    const isVideo = contentType.startsWith("video/");
 
-      return new Response(resp.body, {
-        status: resp.status,
-        statusText: resp.statusText,
-        headers,
-      });
+    if (!isVideo) {
+      // 图片：直接返回
+      return serveImageBuffer(buf, contentType, contentDisp);
     }
 
-    // 图片：读完整 buffer 返回
-    const buf = await resp.arrayBuffer();
-    return serveImageBuffer(buf, contentType, contentDisp);
+    // 视频：支持 Range
+    if (!rangeHeader) {
+      // 无 Range：全量返回 200
+      const headers = new Headers();
+      headers.set("Content-Type", contentType || "video/mp4");
+      headers.set("Content-Length", String(totalBytes));
+      headers.set("Accept-Ranges", "bytes");
+      if (contentDisp) headers.set("Content-Disposition", contentDisp);
+      headers.set("Cache-Control", "public, max-age=86400");
+      return new Response(buf, { status: 200, headers });
+    }
+
+    // 解析 Range: bytes=start-end
+    const rangeMatch = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
+    if (!rangeMatch) {
+      return new Response("无效的 Range 头", { status: 400 });
+    }
+
+    let start = rangeMatch[1] ? parseInt(rangeMatch[1], 10) : 0;
+    let end = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : totalBytes - 1;
+
+    // 边界修正
+    if (start >= totalBytes) {
+      return new Response(null, {
+        status: 416,
+        headers: {
+          "Content-Range": `bytes */${totalBytes}`,
+          "Accept-Ranges": "bytes",
+        },
+      });
+    }
+    if (end >= totalBytes) end = totalBytes - 1;
+    if (start > end) start = end;
+
+    const chunk = buf.slice(start, end + 1);
+    const headers = new Headers();
+    headers.set("Content-Type", contentType || "video/mp4");
+    headers.set("Content-Length", String(chunk.byteLength));
+    headers.set("Content-Range", `bytes ${start}-${end}/${totalBytes}`);
+    headers.set("Accept-Ranges", "bytes");
+    if (contentDisp) headers.set("Content-Disposition", contentDisp);
+    headers.set("Cache-Control", "public, max-age=86400");
+
+    return new Response(chunk, { status: 206, headers });
   } catch (e: any) {
     return new Response(`请求失败: ${e.message?.slice(0, 200)}`, { status: 500 });
   }
