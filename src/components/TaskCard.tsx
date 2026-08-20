@@ -15,7 +15,7 @@ export function TaskCard({ task, index, onOpen }: { task: Task; index: number; o
   const firstCard = task.cards[0];
   const original = (firstCard?.fields?.原图 as any[]) || [];
   const thumb = (firstCard?.fields?.缩略图 as any[]) || [];
-  const cover = thumb.length > 0 ? thumb : original; // 有缩略图用缩略图，没有用原图
+  const cover = original.length > 0 ? original : thumb; // 优先用原图，没有再用缩略图
   const tags = (task.copy?.fields?.标签 as string[]) || [];
   const updated = (firstCard?.fields?.创建日期 as string) || "";
 

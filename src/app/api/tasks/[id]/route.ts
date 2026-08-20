@@ -29,7 +29,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         mode: c.fields?.["风格 Mode"] || "",
         status: c.fields?.状态 || "",
         url: original ? `/api/img/${original.file_token}` : "",
-        cover_url: thumb ? `/api/img/${thumb.file_token}` : (isVideo && original ? `/api/img/${original.file_token}?cover=1` : ""),
+        cover_url: original && !isVideo ? `/api/img/${original.file_token}` : (thumb ? `/api/img/${thumb.file_token}` : (isVideo && original ? `/api/img/${original.file_token}?cover=1` : "")),
         is_video: isVideo,
         created: c.fields?.创建日期 ? new Date(c.fields.创建日期).toISOString() : "",
         fields: c.fields,
