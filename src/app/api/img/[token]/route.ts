@@ -17,60 +17,42 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   try {
     const token = await getTenantAccessToken();
 
-    // 方法 1: 直接 download（bitable_image 图片附件）
-    let resp = await fetch(
-      `https://open.feishu.cn/open-apis/drive/v1/medias/${fileToken}/download`,
+    // 先拿临时下载链接（统一入口，支持图片和视频）
+    const tmpResp = await fetch(
+      "https://open.feishu.cn/open-apis/drive/v1/medias/batch_get_tmp_download_url",
       {
-        headers: { Authorization: `Bearer ${token}` },
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ file_tokens: [fileToken] }),
         cache: "no-store",
       }
     );
+    const tmpJson: any = await tmpResp.json();
+    const item = tmpJson.data?.tmp_download_urls?.[0];
+    const tmpUrl = item?.tmp_download_url;
+    if (!tmpUrl) {
+      return new Response(`下载链接获取失败: ${tmpJson.msg || tmpJson.code}`, { status: 502 });
+    }
 
-    let isVideo = false;
-    let tmpUrl = "";
+    const fileName = item?.file_name || "";
+    const isVideo = /\.(mp4|mov|webm|m4v|avi)$/i.test(fileName);
 
-    if (!resp.ok) {
-      // 方法 2: 拿临时下载链接（兼容 bitable_file / 视频等）
-      const tmpResp = await fetch(
-        "https://open.feishu.cn/open-apis/drive/v1/medias/batch_get_tmp_download_url",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ file_tokens: [fileToken] }),
-          cache: "no-store",
-        }
-      );
-      const tmpJson: any = await tmpResp.json();
-      const item = tmpJson.data?.tmp_download_urls?.[0];
-      tmpUrl = item?.tmp_download_url;
-      if (!tmpUrl) {
-        return new Response(`下载链接获取失败: ${tmpJson.msg || tmpJson.code}`, { status: 502 });
-      }
+    // 转发请求
+    const forwardHeaders: Record<string, string> = {};
+    if (rangeHeader) forwardHeaders["Range"] = rangeHeader;
 
-      // 判断是不是视频
-      const fileName = item?.file_name || "";
-      isVideo = /\.(mp4|mov|webm|m4v|avi)$/i.test(fileName);
-
-      // 视频：带 Range 转发，支持流式播放
-      if (isVideo && rangeHeader) {
-        resp = await fetch(tmpUrl, {
-          headers: { Range: rangeHeader },
-        });
-      } else {
-        resp = await fetch(tmpUrl);
-      }
-      if (!resp.ok && resp.status !== 206) {
-        return new Response("文件下载失败: " + resp.status, { status: 502 });
-      }
+    const resp = await fetch(tmpUrl, { headers: forwardHeaders });
+    if (!resp.ok && resp.status !== 206) {
+      return new Response("文件下载失败: " + resp.status, { status: 502 });
     }
 
     const contentType = resp.headers.get("content-type") || "";
     const contentDisp = resp.headers.get("content-disposition") || "";
 
-    // 视频：直接 stream 转发，支持 Range
+    // 视频：stream 转发，支持 Range
     if (isVideo || contentType.startsWith("video/")) {
       const headers = new Headers();
       headers.set("Content-Type", contentType || "video/mp4");
@@ -78,7 +60,8 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       if (cl) headers.set("Content-Length", cl);
       const cr = resp.headers.get("content-range");
       if (cr) headers.set("Content-Range", cr);
-      headers.set("Accept-Ranges", resp.headers.get("accept-ranges") || "bytes");
+      const ar = resp.headers.get("accept-ranges");
+      headers.set("Accept-Ranges", ar || "bytes");
       if (contentDisp) headers.set("Content-Disposition", contentDisp);
       headers.set("Cache-Control", "public, max-age=86400");
 
