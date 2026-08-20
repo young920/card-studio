@@ -10,26 +10,40 @@ interface Task {
   copy?: Card;
 }
 
-export function TaskGrid({ tasks, onOpen }: { tasks: Task[]; onOpen: (id: number) => void }) {
+export function TaskGrid({
+  tasks,
+  onOpen,
+  onDeleteTask,
+  onDownloadTask,
+  onCopyTask,
+}: {
+  tasks: Task[];
+  onOpen: (id: number) => void;
+  onDeleteTask?: (id: number) => void;
+  onDownloadTask?: (id: number) => void;
+  onCopyTask?: (id: number) => void;
+}) {
   if (tasks.length === 0) {
     return (
-      <div className="border border-dashed border-creamDeep p-16 text-center">
-        <p className="eyebrow text-inkSoft">EMPTY LIBRARY · 空库</p>
-        <p className="font-serif text-[20px] mt-3">暂无任务</p>
+      <div className="border-2 border-ink border-dashed p-16 text-center bg-creamLight">
+        <p className="eyebrow text-inkSoft">EMPTY LIBRARY</p>
+        <p className="font-display text-[24px] font-bold mt-3">还没有卡片项目</p>
         <p className="text-inkSoft text-[14px] mt-2">
-          点「+ NEW TASK 新建」或在顶部搜索框粘任务名; 也可通过 <code className="font-mono text-brick">yang-bitable-vault</code> skill 同步。
+          点右上角 <span className="font-mono text-brick font-bold">+ NEW</span> 新建，或从飞书表格同步。
         </p>
       </div>
     );
   }
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-      {tasks.map((t, i) => (
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+      {tasks.map((t) => (
         <TaskCard
           key={t.task_id}
           task={t}
-          index={i + 1}
           onOpen={() => onOpen(t.task_id)}
+          onDelete={onDeleteTask ? () => onDeleteTask(t.task_id) : undefined}
+          onDownload={onDownloadTask ? () => onDownloadTask(t.task_id) : undefined}
+          onCopyText={onCopyTask ? () => onCopyTask(t.task_id) : undefined}
         />
       ))}
     </div>

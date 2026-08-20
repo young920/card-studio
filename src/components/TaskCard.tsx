@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
-interface Card { record_id: string; fields: Record<string, any>; }
+type Card = { record_id: string; fields: Record<string, any> };
+
 interface Task {
   task_id: number;
   project_name: string;
@@ -10,7 +11,15 @@ interface Task {
   copy?: Card;
 }
 
-export function TaskCard({ task, index, onOpen }: { task: Task; index: number; onOpen: () => void }) {
+interface TaskCardProps {
+  task: Task;
+  onOpen: () => void;
+  onDelete?: () => void;
+  onDownload?: () => void;
+  onCopyText?: () => void;
+}
+
+export function TaskCard({ task, onOpen, onDelete, onDownload, onCopyText }: TaskCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const firstCard = task.cards[0];
   const original = (firstCard?.fields?.原图 as any[]) || [];
@@ -28,123 +37,106 @@ export function TaskCard({ task, index, onOpen }: { task: Task; index: number; o
   const tags = (task.copy?.fields?.标签 as string[]) || [];
   const updated = (firstCard?.fields?.创建日期 as string) || "";
 
-  async function handleDownload(e: React.MouseEvent) {
+  function handleCopyText(e: React.MouseEvent) {
     e.stopPropagation();
     setMenuOpen(false);
-    window.location.href = `/api/tasks/${task.task_id}/zip`;
+    onCopyText?.();
   }
-
-  async function handleCopyText(e: React.MouseEvent) {
+  function handleDownload(e: React.MouseEvent) {
     e.stopPropagation();
     setMenuOpen(false);
-    const c = task.copy;
-    if (!c) return;
-    const text = `${c.fields.标题 || task.project_name}\n\n${c.fields.总文案 || c.fields.正文 || ""}\n\n${(c.fields.标签 as string[] || []).join(" ")}`;
-    try {
-      await navigator.clipboard.writeText(text);
-      alert("✅ 文案已复制到剪贴板");
-    } catch {
-      alert("复制失败，请检查浏览器权限");
+    onDownload?.();
+  }
+  function handleDelete(e: React.MouseEvent) {
+    e.stopPropagation();
+    setMenuOpen(false);
+    if (confirm(`删除「${task.project_name}」及其所有卡片？`)) {
+      onDelete?.();
     }
   }
 
   return (
-    <div className="card-tile relative group cursor-pointer" onClick={onOpen}>
-      {/* Top row: index + menu */}
-      <div className="flex items-start justify-between p-3">
-        <div className="w-7 h-7 bg-cream flex items-center justify-center border border-creamDeep">
-          <span className="font-mono text-[11px] font-bold">{String(index).padStart(2, "0")}</span>
-        </div>
-        <div className="relative">
-          <button
-            onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
-            className="w-7 h-7 flex items-center justify-center hover:bg-creamDeep transition"
+    <div
+      className="bg-creamLight border-2 border-ink cursor-pointer transition-all duration-200 group hover:-translate-y-1 hover:shadow-offset-lg"
+      onClick={onOpen}
+    >
+      {/* 顶栏 */}
+      <div className="flex items-center justify-between px-3 py-2 border-b-2 border-ink bg-ink/5">
+        <span className="font-mono text-[10px] font-bold tracking-wider text-ink">
+          NO.{String(task.task_id).padStart(3, "0")}
+        </span>
+        <button
+          onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+          className="w-6 h-6 flex items-center justify-center hover:bg-creamDeep transition"
+        >
+          <span className="font-mono text-[14px]">⋯</span>
+        </button>
+        {menuOpen && (
+          <div
+            className="absolute right-0 top-8 bg-creamLight border-2 border-ink shadow-offset z-10 w-36"
+            onClick={(e) => e.stopPropagation()}
           >
-            <span className="font-mono text-[14px]">⋯</span>
-          </button>
-          {menuOpen && (
-            <div
-              className="absolute right-0 top-8 bg-creamLight border border-ink shadow-cardHover z-10 w-36"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button onClick={handleCopyText} className="w-full text-left px-3 py-2 text-[13px] hover:bg-creamDeep font-mono">
-                ⧉ COPY COPY
+            <button onClick={handleCopyText} className="w-full text-left px-3 py-2 text-[12px] hover:bg-creamDeep font-mono border-b border-ink/10">
+              ⧉ COPY COPY
+            </button>
+            <button onClick={handleDownload} className="w-full text-left px-3 py-2 text-[12px] hover:bg-creamDeep font-mono border-b border-ink/10">
+              ⤓ DOWNLOAD ZIP
+            </button>
+            {onDelete && (
+              <button onClick={handleDelete} className="w-full text-left px-3 py-2 text-[12px] hover:bg-brick hover:text-cream font-mono text-brickDeep">
+                ✕ DELETE
               </button>
-              <button onClick={handleDownload} className="w-full text-left px-3 py-2 text-[13px] hover:bg-creamDeep font-mono">
-                ⤓ DOWNLOAD ZIP
-              </button>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Cover preview */}
-      <div className="px-3">
-        <div className="aspect-[4/5] bg-creamDeep border border-creamDeep overflow-hidden relative">
+      <div className="relative">
+        <div className="aspect-[4/5] bg-creamDeep overflow-hidden">
           {cover[0] ? (
-            <BitableImage fileToken={cover[0].file_token} alt={task.project_name} />
+            <img
+              src={`/api/img/${cover[0].file_token}`}
+              alt={task.project_name}
+              className="w-full h-full object-cover"
+            />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-inkSoft font-mono text-[11px]">
               NO COVER
             </div>
           )}
-          {isVideo && (
-            <div className="absolute top-2 right-2 w-7 h-7 rounded-full bg-ink/70 text-cream flex items-center justify-center">
-              <span className="text-[10px] ml-0.5">▶</span>
-            </div>
-          )}
         </div>
-      </div>
-
-      {/* Bottom: title + meta */}
-      <div className="p-3">
-        <h3 className="font-serif text-[16px] leading-tight line-clamp-2 min-h-[2.5em]">
-          {task.copy?.fields?.标题 || task.project_name}
-        </h3>
-        <p className="eyebrow mt-2 text-inkSoft">
-          {task.cards.length} CARDS · {updated ? new Date(updated).toISOString().slice(0, 10) : "—"}
-        </p>
+        {isVideo && (
+          <div className="absolute top-2 right-2 w-8 h-8 rounded-full bg-ink/80 text-cream flex items-center justify-center border-2 border-cream">
+            <span className="text-[11px] ml-0.5">▶</span>
+          </div>
+        )}
+        {/* 标签小块 */}
         {tags.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1">
-            {tags.slice(0, 3).map((tag) => (
-              <span key={tag} className="text-[10px] font-mono text-brick">
-                {tag}
+          <div className="absolute bottom-2 left-2 flex gap-1">
+            {tags.slice(0, 2).map((tag) => (
+              <span key={tag} className="bg-brick text-cream text-[9px] font-mono px-1.5 py-0.5 font-bold">
+                {tag.toUpperCase()}
               </span>
             ))}
           </div>
         )}
       </div>
 
-      {/* Open button (hover) */}
-      <div className="absolute bottom-3 right-3 w-9 h-9 rounded-full bg-ink text-cream flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
-        <span className="text-[14px]">▶</span>
+      {/* Bottom: title + meta */}
+      <div className="p-3 border-t-2 border-ink">
+        <h3 className="font-display text-[15px] font-bold leading-tight line-clamp-2 min-h-[2.5em]">
+          {task.copy?.fields?.标题 || task.project_name}
+        </h3>
+        <div className="flex items-center justify-between mt-2">
+          <span className="font-mono text-[10px] text-inkSoft">
+            {task.cards.length} CARDS
+          </span>
+          <span className="font-mono text-[10px] text-inkSoft">
+            {updated ? new Date(updated).toISOString().slice(2, 10).replace(/-/g, ".") : "—"}
+          </span>
+        </div>
       </div>
-    </div>
-  );
-}
-
-function BitableImage({ fileToken, alt }: { fileToken: string; alt: string }) {
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState(false);
-
-  if (error) {
-    return (
-      <div className="w-full h-full bg-creamDeep flex items-center justify-center text-inkSoft font-mono text-[11px]">
-        加载失败
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative w-full h-full">
-      {!loaded && <div className="absolute inset-0 bg-creamDeep animate-pulse" />}
-      <img
-        src={`/api/img/${fileToken}`}
-        alt={alt}
-        className={`w-full h-full object-cover transition-opacity ${loaded ? 'opacity-100' : 'opacity-0'}`}
-        onLoad={() => setLoaded(true)}
-        onError={() => setError(true)}
-      />
     </div>
   );
 }

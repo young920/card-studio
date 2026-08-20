@@ -263,108 +263,62 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen">
-      {/* Top header */}
-      <header className="px-8 md:px-16 pt-8 pb-6">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-brick rounded-sm flex items-center justify-center">
-              <span className="text-cream font-mono text-[12px] font-bold">CA</span>
+      {/* Top nav - 胶囊悬浮条 */}
+      <div className="sticky top-4 z-40 mx-auto max-w-6xl px-4">
+        <header className="nav-pill px-5 py-3">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 bg-brick rounded-sm flex items-center justify-center">
+                <span className="text-cream font-mono text-[11px] font-bold">CA</span>
+              </div>
+              <span className="font-display text-[18px] font-bold tracking-tight">card atelier</span>
             </div>
-            <span className="font-serif text-[18px] tracking-tight">图个明白</span>
+            <nav className="flex items-center gap-5 text-eyebrow">
+              <a href="#library" className="hover:text-brick transition">LIBRARY</a>
+              <button
+                onClick={(e) => { e.preventDefault(); setShowGuide(true); }}
+                className="hover:text-brick transition text-left"
+              >
+                GUIDE
+              </button>
+              <button
+                onClick={(e) => { e.preventDefault(); setBitablePwdErr(false); setBitablePwd(""); setShowBitablePassword(true); }}
+                className="hover:text-brick transition flex items-center gap-1"
+                title="在飞书多维表格中打开"
+              >
+                <span>BITABLE</span>
+              </button>
+            </nav>
+            <div className="flex items-center gap-2">
+              <button onClick={refresh} className="btn-ghost text-[11px] px-3 py-1.5">
+                ⟳ REFRESH
+              </button>
+              <button onClick={() => setShowCreate(true)} className="btn-primary text-[11px] px-4 py-1.5">
+                + NEW
+              </button>
+            </div>
           </div>
-          <nav className="flex items-center gap-6 text-eyebrow">
-            <a href="#library" className="hover:text-brick transition">LIBRARY · 卡片库</a>
-            <button
-              onClick={(e) => { e.preventDefault(); setShowGuide(true); }}
-              className="hover:text-brick transition text-left"
-            >
-              GUIDE · 使用指南
-            </button>
-            <button
-              onClick={(e) => { e.preventDefault(); setBitablePwdErr(false); setBitablePwd(""); setShowBitablePassword(true); }}
-              className="flex items-center gap-1.5 hover:text-brick transition"
-              title="在飞书多维表格中打开"
-            >
-              <span>⤴</span>
-              <span>飞书表格</span>
-            </button>
-            <button
-              onClick={async () => {
-                try {
-                  const r = await fetch("/api/health");
-                  const j = await r.json();
-                  if (j.ok) {
-                    alert(`飞书连接正常\n\n认证方式：${j.mode}\nBase Token：${j.bitableBase?.slice(0, 12)}...`);
-                  } else {
-                    alert("飞书连接异常：" + (j.error || "未知错误"));
-                  }
-                } catch (e: any) {
-                  alert("检测失败：" + e.message);
-                }
-              }}
-              className="flex items-center gap-1.5 hover:text-brick transition cursor-help"
-              title="点击检测飞书连接状态"
-            >
-              <span className="w-2 h-2 rounded-full bg-green-500 inline-block"></span>
-              <span>飞书已连接</span>
-            </button>
-          </nav>
-          <div className="flex items-center gap-3">
-            <input
-              value={createName}
-              onChange={(e) => setCreateName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && setShowCreate(true)}
-              placeholder="新任务项目名…"
-              className="bg-creamLight border border-ink px-3 py-1.5 text-[13px] font-mono w-44"
-            />
-            <select
-              value={createStyle}
-              onChange={(e) => setCreateStyle(e.target.value)}
-              className="bg-creamLight border border-ink px-2 py-1.5 text-[13px] font-mono"
-              title="选风格 Mode"
-            >
-              {STYLE_OPTIONS.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-            <button onClick={() => setShowCreate(true)} className="btn-primary text-[12px]">
-              + 新建任务
-            </button>
-            <button onClick={refresh} className="btn-ghost">
-              ⟳ 刷新
-            </button>
-          </div>
-        </div>
-        <div className="divider-rule mt-6" />
-      </header>
+        </header>
+      </div>
 
       {/* Hero */}
-      <section className="px-8 md:px-16 pt-12 pb-16 grid md:grid-cols-2 gap-12 items-start">
-        <div>
-          <p className="eyebrow mb-4">—— ALL TASKS · 全部任务</p>
-          <h1 className="h-display">
-            图个明白
-          </h1>
-          <p className="mt-6 text-inkSoft max-w-md leading-relaxed">
-            把知识做成卡片，看图就懂
-          </p>
-        </div>
+      <section className="px-8 md:px-16 pt-16 pb-20 max-w-6xl mx-auto">
+        <p className="eyebrow mb-6">— ALL CARDS · 卡片知识库</p>
+        <h1 className="h-display max-w-3xl">
+          把知识做成卡片，<br />
+          <span className="text-brick">看图就懂。</span>
+        </h1>
+        <p className="mt-8 text-inkSoft max-w-xl text-[16px] leading-relaxed">
+          精选信息图合集，把看过的好内容沉淀成一张张能转发的卡片。
+          随时翻，随时用，随时分享。
+        </p>
 
-        <div className="border border-creamDeep bg-creamLight p-8 skew-card">
-          <p className="eyebrow text-brick mb-3">— STATUS · 状态</p>
-          <div className="grid grid-cols-3 gap-6 mt-4">
-            <div>
-              <div className="font-serif text-[56px] leading-none">{tasks?.length ?? "—"}</div>
-              <p className="eyebrow mt-2">TASKS · 任务</p>
-            </div>
-            <div>
-              <div className="font-serif text-[56px] leading-none">{totalCards || "—"}</div>
-              <p className="eyebrow mt-2">CARDS · 卡片</p>
-            </div>
-            <div>
-              <div className="font-serif text-[24px] leading-none mt-3">{lastUpdate}</div>
-              <p className="eyebrow mt-2">LAST UPDATE · 最近更新</p>
-            </div>
+        <div className="flex items-center gap-4 mt-10">
+          <a href="#library" className="btn-brick">
+            Browse library →
+          </a>
+          <div className="flex items-center gap-3 text-eyebrow">
+            <span className="text-inkSoft">{tasks?.length ?? 0} 个项目 · {totalCards || 0} 张卡片</span>
           </div>
         </div>
       </section>
@@ -380,52 +334,37 @@ export default function HomePage() {
       )}
 
       {/* Library */}
-      <section id="library" className="px-8 md:px-16 pb-24">
-        {/* Stats bar */}
-        <div className="flex items-center gap-4 mb-6 px-4 py-3 bg-creamLight border border-creamDeep">
-          <span className="font-mono text-[13px] text-inkSoft">
-            {tasks ? (
-              <>{tasks.length} 个任务 · {totalCards} 张图 · 上次更新 {lastUpdate}</>
-            ) : (
-              "loading…"
-            )}
-          </span>
-        </div>
-
-        <div className="flex items-end justify-between mb-8 gap-4">
+      <section id="library" className="px-8 md:px-16 pb-32 max-w-6xl mx-auto">
+        <div className="flex items-end justify-between mb-10 gap-4">
           <div>
-            <p className="eyebrow mb-2">—— LIBRARY</p>
-            <h2 className="h-section">All tasks</h2>
+            <p className="eyebrow mb-3">— library</p>
+            <h2 className="h-title">全部卡片项目</h2>
           </div>
-          <p className="text-inkSoft text-[13px] whitespace-nowrap">
-            {tasks ? `${sortedTasks.length} / ${tasks.length}` : "loading..."}
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 mb-6">
-          {([
-            ["newest", "最新"],
-            ["oldest", "最老"],
-            ["name", "项目名"],
-            ["cards", "图片数"],
-          ] as const).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setSortBy(key)}
-              className={`px-3 py-1 text-[12px] font-mono border transition ${
-                sortBy === key
+          <div className="flex items-center gap-2">
+            {([
+              ["newest", "NEWEST"],
+              ["oldest", "OLDEST"],
+              ["name", "NAME"],
+              ["cards", "CARDS"],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setSortBy(key)}
+                className={`px-3 py-1.5 text-[11px] font-mono border-2 transition ${sortBy === key
                   ? "bg-ink text-cream border-ink"
-                  : "bg-creamLight text-inkSoft border-creamDeep hover:border-ink"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+                  : "bg-transparent text-inkSoft border-creamDeep hover:border-ink hover:text-ink"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <TaskGrid
           tasks={sortedTasks}
           onOpen={(tid) => setOpenTaskId(tid)}
+          onDownloadTask={(tid) => { /* download handled inside modal */ }}
         />
       </section>
 
