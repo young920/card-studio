@@ -41,6 +41,11 @@ export default function HomePage() {
   // 使用指南弹层
   const [showGuide, setShowGuide] = useState(false);
 
+  // 飞书表格密码验证弹层
+  const [showBitablePassword, setShowBitablePassword] = useState(false);
+  const [bitablePwd, setBitablePwd] = useState("");
+  const [bitablePwdErr, setBitablePwdErr] = useState(false);
+
   async function refresh() {
     try {
       setErr(null);
@@ -275,16 +280,14 @@ export default function HomePage() {
             >
               GUIDE · 使用指南
             </button>
-            <a
-              href="https://bytedance.feishu.cn/base/BQ3gbOvjPa8tG9sAeRycCJSInrh"
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={(e) => { e.preventDefault(); setBitablePwdErr(false); setBitablePwd(""); setShowBitablePassword(true); }}
               className="flex items-center gap-1.5 hover:text-brick transition"
               title="在飞书多维表格中打开"
             >
               <span>⤴</span>
               <span>飞书表格</span>
-            </a>
+            </button>
             <button
               onClick={async () => {
                 try {
@@ -621,6 +624,56 @@ export default function HomePage() {
                 <p className="text-inkSoft">所有数据实时同步到飞书多维表格：信息图库（存卡片）+ 文案库（存文字）。两边用 task_id 关联。</p>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 飞书表格密码验证弹层 */}
+      {showBitablePassword && (
+        <div
+          className="fixed inset-0 z-50 bg-ink/60 flex items-center justify-center p-6"
+          onClick={() => setShowBitablePassword(false)}
+        >
+          <div
+            className="bg-cream w-full max-w-[400px] border-2 border-ink p-8 shadow-cardHover"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between mb-6">
+              <div>
+                <p className="eyebrow text-brick">ACCESS CODE</p>
+                <h2 className="font-serif text-[22px] leading-tight mt-2">访问飞书表格</h2>
+              </div>
+              <button
+                onClick={() => setShowBitablePassword(false)}
+                className="w-9 h-9 hover:bg-creamDeep transition flex items-center justify-center"
+              >
+                <span className="font-mono text-[18px]">✕</span>
+              </button>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (bitablePwd === "yang") {
+                  window.open("https://bytedance.feishu.cn/base/BQ3gbOvjPa8tG9sAeRycCJSInrh", "_blank");
+                  setShowBitablePassword(false);
+                } else {
+                  setBitablePwdErr(true);
+                }
+              }}
+            >
+              <input
+                type="password"
+                value={bitablePwd}
+                onChange={(e) => { setBitablePwd(e.target.value); setBitablePwdErr(false); }}
+                placeholder="请输入密码"
+                autoFocus
+                className="w-full bg-creamLight border border-ink px-3 py-2 font-mono text-[14px] mb-2"
+              />
+              {bitablePwdErr && <p className="text-brick text-[12px] font-mono mb-3">密码错误，请重试</p>}
+              <button type="submit" className="btn-primary w-full text-[13px] py-2">
+                确认访问
+              </button>
+            </form>
           </div>
         </div>
       )}
