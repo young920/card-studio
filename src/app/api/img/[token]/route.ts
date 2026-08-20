@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "edge";
 
 /** GET /api/img/[token] — 反代飞书附件（图片/视频）给前端用
- *  支持 Range 请求（视频拖动进度条需要）
+ *  视频支持 Range 请求（拖动进度条需要）
  */
 export async function GET(req: Request, { params }: { params: { token: string } }) {
   const fileToken = params.token;
@@ -17,50 +17,68 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   try {
     const token = await getTenantAccessToken();
 
-    // 先拿文件信息和下载链接
-    const tmpResp = await fetch(
-      "https://open.feishu.cn/open-apis/drive/v1/medias/batch_get_tmp_download_url",
+    // 方法 1: 直接 download（bitable_image 图片附件）
+    let resp = await fetch(
+      `https://open.feishu.cn/open-apis/drive/v1/medias/${fileToken}/download`,
       {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ file_tokens: [fileToken] }),
+        headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
       }
     );
-    const tmpJson: any = await tmpResp.json();
-    const item = tmpJson.data?.tmp_download_urls?.[0];
-    const url = item?.tmp_download_url;
-    if (!url) {
-      return new Response(`下载链接获取失败: ${tmpJson.msg || tmpJson.code}`, { status: 502 });
-    }
 
-    // 转发请求（带 Range header），让飞书源站处理 Range
-    const forwardHeaders = new Headers();
-    if (rangeHeader) forwardHeaders.set("Range", rangeHeader);
+    let isVideo = false;
+    let tmpUrl = "";
 
-    const resp = await fetch(url, { headers: forwardHeaders });
-    if (!resp.ok && resp.status !== 206) {
-      return new Response("文件下载失败: " + resp.status, { status: 502 });
+    if (!resp.ok) {
+      // 方法 2: 拿临时下载链接（兼容 bitable_file / 视频等）
+      const tmpResp = await fetch(
+        "https://open.feishu.cn/open-apis/drive/v1/medias/batch_get_tmp_download_url",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ file_tokens: [fileToken] }),
+          cache: "no-store",
+        }
+      );
+      const tmpJson: any = await tmpResp.json();
+      const item = tmpJson.data?.tmp_download_urls?.[0];
+      tmpUrl = item?.tmp_download_url;
+      if (!tmpUrl) {
+        return new Response(`下载链接获取失败: ${tmpJson.msg || tmpJson.code}`, { status: 502 });
+      }
+
+      // 判断是不是视频
+      const fileName = item?.file_name || "";
+      isVideo = /\.(mp4|mov|webm|m4v|avi)$/i.test(fileName);
+
+      // 视频：带 Range 转发，支持流式播放
+      if (isVideo && rangeHeader) {
+        resp = await fetch(tmpUrl, {
+          headers: { Range: rangeHeader },
+        });
+      } else {
+        resp = await fetch(tmpUrl);
+      }
+      if (!resp.ok && resp.status !== 206) {
+        return new Response("文件下载失败: " + resp.status, { status: 502 });
+      }
     }
 
     const contentType = resp.headers.get("content-type") || "";
     const contentDisp = resp.headers.get("content-disposition") || "";
-    const contentLen = resp.headers.get("content-length") || "";
-    const contentRange = resp.headers.get("content-range") || "";
-    const acceptRanges = resp.headers.get("accept-ranges") || "";
 
-    // 图片走完整 buffer + 缓存；视频直接 stream 转发（支持 Range）
-    const isVideo = contentType.startsWith("video/") || /\.(mp4|mov|webm|m4v|avi)$/i.test(item?.file_name || "");
-
-    if (isVideo) {
+    // 视频：直接 stream 转发，支持 Range
+    if (isVideo || contentType.startsWith("video/")) {
       const headers = new Headers();
       headers.set("Content-Type", contentType || "video/mp4");
-      if (contentLen) headers.set("Content-Length", contentLen);
-      if (contentRange) headers.set("Content-Range", contentRange);
-      headers.set("Accept-Ranges", acceptRanges || "bytes");
+      const cl = resp.headers.get("content-length");
+      if (cl) headers.set("Content-Length", cl);
+      const cr = resp.headers.get("content-range");
+      if (cr) headers.set("Content-Range", cr);
+      headers.set("Accept-Ranges", resp.headers.get("accept-ranges") || "bytes");
       if (contentDisp) headers.set("Content-Disposition", contentDisp);
       headers.set("Cache-Control", "public, max-age=86400");
 
