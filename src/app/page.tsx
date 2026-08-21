@@ -364,7 +364,7 @@ export default function HomePage() {
         <TaskGrid
           tasks={sortedTasks}
           onOpen={(tid) => setOpenTaskId(tid)}
-          onDownloadTask={(tid) => { /* download handled inside modal */ }}
+          onDownloadTask={(tid) => { window.location.href = `/api/tasks/${tid}/zip`; }}
         />
       </section>
 

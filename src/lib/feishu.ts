@@ -188,26 +188,40 @@ export async function getAttachmentBuffer(
   _fileName: string = "attachment.png"
 ): Promise<ArrayBuffer> {
   const token = await getTenantAccessToken();
-  const dlResp = await fetch(
-    `${FEISHU_BASE}/drive/v1/medias/batch_get_tmp_download_url`,
+
+  // 方法 1: 直接 download（bitable_image 图片附件等）
+  let resp = await fetch(
+    `${FEISHU_BASE}/drive/v1/medias/${fileToken}/download`,
     {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ file_tokens: [fileToken] }),
+      headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
     }
   );
-  const dlJson: any = await dlResp.json();
-  if (dlJson.code !== 0) throw new Error(`获取下载链接失败: ${dlJson.msg}`);
-  const url = dlJson.data?.tmp_download_urls?.[0]?.tmp_download_url;
-  if (!url) throw new Error("下载链接为空");
 
-  const fileResp = await fetch(url);
-  if (!fileResp.ok) throw new Error(`下载附件失败: ${fileResp.status}`);
-  return fileResp.arrayBuffer();
+  if (!resp.ok) {
+    // 方法 2: 拿临时下载链接（兼容 bitable_file / 视频等）
+    const dlResp = await fetch(
+      `${FEISHU_BASE}/drive/v1/medias/batch_get_tmp_download_url`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ file_tokens: [fileToken] }),
+        cache: "no-store",
+      }
+    );
+    const dlJson: any = await dlResp.json();
+    if (dlJson.code !== 0) throw new Error(`获取下载链接失败: ${dlJson.msg}`);
+    const url = dlJson.data?.tmp_download_urls?.[0]?.tmp_download_url;
+    if (!url) throw new Error("下载链接为空");
+
+    resp = await fetch(url);
+    if (!resp.ok) throw new Error(`下载附件失败: ${resp.status}`);
+  }
+
+  return resp.arrayBuffer();
 }
 
 export async function getAttachmentTmpUrl(fileToken: string): Promise<string> {
