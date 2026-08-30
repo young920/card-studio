@@ -35,6 +35,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         url: original ? `/api/img/${original.file_token}` : "",
         cover_url: original && !isVideo ? `/api/img/${original.file_token}` : (thumb ? `/api/img/${thumb.file_token}` : (isVideo && original ? `/api/img/${original.file_token}?cover=1` : "")),
         is_video: isVideo,
+        source_url: c.fields?.原文链接 || "",
         created: c.fields?.创建日期 ? new Date(c.fields.创建日期).toISOString() : "",
         fields: c.fields,
       };
@@ -52,12 +53,15 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
     const { id } = await ctx.params;
     const taskId = Number(id);
     const body = await req.json();
-    const { project_name } = body;
+    const { project_name, source_url } = body;
     if (!project_name?.trim()) return NextResponse.json({ ok: false, error: "project_name required" }, { status: 400 });
 
     const all = await listCards();
     const taskCards = all.filter((c) => Number(c.fields.task_id) === taskId);
-    await Promise.all(taskCards.map((c) => updateCardFields(c.record_id, { 项目名: project_name.trim() })));
+    await Promise.all(taskCards.map((c) => updateCardFields(c.record_id, {
+      项目名: project_name.trim(),
+      ...(source_url !== undefined ? { 原文链接: String(source_url || "") } : {}),
+    })));
     return NextResponse.json({ ok: true, updated: taskCards.length });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e.message }, { status: 500 });

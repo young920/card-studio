@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
     const styleMode = String(body.style_mode || "Editorial Weekly");
     const title = String(body.title || "");
     const bodyText = String(body.body || "");
+    const sourceUrl = String(body.source_url || "");
     const tags = Array.isArray(body.tags) ? body.tags : [];
 
     const newId = await nextAutoNumber(0);
@@ -28,6 +29,7 @@ export async function POST(req: NextRequest) {
         项目名: projectName,
         主题一句话: `${projectName} · 封面 (待上传)`,
         "风格 Mode": styleMode,
+        原文链接: sourceUrl,
         状态: "草稿",
         创建日期: Date.now(),
       });

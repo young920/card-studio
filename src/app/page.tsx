@@ -32,6 +32,7 @@ export default function HomePage() {
   const [createTitle, setCreateTitle] = useState("");
   const [createBody, setCreateBody] = useState("");
   const [createTags, setCreateTags] = useState("");
+  const [createSourceUrl, setCreateSourceUrl] = useState("");
   const [createFiles, setCreateFiles] = useState<File[]>([]);
   const [createFileCovers, setCreateFileCovers] = useState<(string | null)[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -74,6 +75,7 @@ export default function HomePage() {
     setCreateTitle("");
     setCreateBody("");
     setCreateTags("");
+    setCreateSourceUrl("");
     setCreateFiles([]);
     setCreateFileCovers([]);
     setUploadProgress(0);
@@ -101,6 +103,7 @@ export default function HomePage() {
           style_mode: createStyle,
           title: createTitle.trim(),
           body: createBody,
+          source_url: createSourceUrl.trim(),
           tags: createTags.trim().split(/\s+/).filter(Boolean),
         }),
       });
@@ -452,6 +455,17 @@ export default function HomePage() {
                 value={createTags}
                 onChange={(e) => setCreateTags(e.target.value)}
                 placeholder="创业 增长 产品"
+                className="w-full bg-creamLight border border-ink px-3 py-2 font-mono text-[12px]"
+              />
+            </div>
+
+            {/* 原文链接 */}
+            <div className="mb-4">
+              <label className="eyebrow text-[11px] mb-1 block">原文链接</label>
+              <input
+                value={createSourceUrl}
+                onChange={(e) => setCreateSourceUrl(e.target.value)}
+                placeholder="https://..."
                 className="w-full bg-creamLight border border-ink px-3 py-2 font-mono text-[12px]"
               />
             </div>

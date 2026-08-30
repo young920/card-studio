@@ -11,6 +11,7 @@ interface CardInfo {
   url: string;
   cover_url: string;
   is_video: boolean;
+  source_url: string;
   created: string;
 }
 
@@ -43,6 +44,7 @@ export function TaskModal({
   // edit state
   const [editMode, setEditMode] = useState<"view" | "edit-title" | "edit-copy">("view");
   const [editName, setEditName] = useState(projectName);
+  const [editSourceUrl, setEditSourceUrl] = useState("");
   const [editTitle, setEditTitle] = useState("");
   const [editBody, setEditBody] = useState("");
   const [editTags, setEditTags] = useState("");
@@ -93,6 +95,11 @@ export function TaskModal({
       setEditBody("");
       setEditTags("");
     }
+    if (t?.cards?.[0]?.fields) {
+      setEditSourceUrl(t.cards[0].fields.原文链接 || "");
+    } else {
+      setEditSourceUrl("");
+    }
   }
 
   useEffect(() => {
@@ -126,7 +133,7 @@ export function TaskModal({
       const r = await fetch(`/api/tasks/${taskId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_name: editName.trim() }),
+        body: JSON.stringify({ project_name: editName.trim(), source_url: editSourceUrl.trim() }),
       });
       const j = await r.json();
       if (!j.ok) throw new Error(j.error);
@@ -486,11 +493,17 @@ export function TaskModal({
                     className="font-serif text-[22px] leading-tight w-full bg-creamLight border border-ink px-2 py-1"
                     autoFocus
                   />
+                  <input
+                    value={editSourceUrl}
+                    onChange={(e) => setEditSourceUrl(e.target.value)}
+                    placeholder="原文链接 https://..."
+                    className="mt-3 w-full bg-creamLight border border-ink px-2 py-1.5 font-mono text-[12px]"
+                  />
                   <div className="flex gap-2 mt-3">
                     <button onClick={handleSaveTitle} disabled={saving} className="btn-primary text-[12px] py-1.5 px-3">
                       {saving ? "保存中…" : "保存"}
                     </button>
-                    <button onClick={() => { setEditMode("view"); setEditName(projectName); }} className="btn-ghost text-[12px] py-1.5 px-3">
+                    <button onClick={() => { setEditMode("view"); setEditName(projectName); refreshAll(); }} className="btn-ghost text-[12px] py-1.5 px-3">
                       取消
                     </button>
                     {saveErr && <span className="text-brick font-mono text-[12px]">⚠ {saveErr}</span>}
@@ -498,7 +511,20 @@ export function TaskModal({
                 </div>
               ) : (
                 // 显示项目名（不是 copy 的标题）
-                <h2 className="font-serif text-[28px] leading-tight mt-2">{projectName || `Task ${taskId}`}</h2>
+                <div className="mt-2">
+                  <h2 className="font-serif text-[28px] leading-tight">{projectName || `Task ${taskId}`}</h2>
+                  {cards?.[0]?.source_url && (
+                    <a
+                      href={cards[0].source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-block mt-2 text-[12px] font-mono text-brick hover:underline truncate max-w-full"
+                      title={cards[0].source_url}
+                    >
+                      → 原文链接
+                    </a>
+                  )}
+                </div>
               )}
             </div>
             <button onClick={onClose} className="w-9 h-9 hover:bg-creamDeep transition flex items-center justify-center">
