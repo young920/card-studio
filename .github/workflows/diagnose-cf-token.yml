@@ -1,0 +1,32 @@
+name: Diagnose Cloudflare Token
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Cloudflare token
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          echo "=== Step 1: /user/tokens/verify ==="
+          curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.cloudflare.com/client/v4/user/tokens/verify" | python3 -m json.tool
+
+      - name: Check Pages project access
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          echo "=== Step 2: /accounts/<id>/pages/projects/card-studio ==="
+          curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/card-studio" | python3 -m json.tool
+
+      - name: Check secret names exist
+        run: |
+          echo "=== Step 3: Secret names available to workflow ==="
+          if [ -n "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then echo "CLOUDFLARE_API_TOKEN: set"; else echo "CLOUDFLARE_API_TOKEN: MISSING"; fi
+          if [ -n "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ]; then echo "CLOUDFLARE_ACCOUNT_ID: set"; else echo "CLOUDFLARE_ACCOUNT_ID: MISSING"; fi
