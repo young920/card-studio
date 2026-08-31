@@ -156,6 +156,7 @@ export function TaskModal({
     try {
       let recordId = copyRecordId;
       // 没有文案记录就新建一条
+      const tagList = editTags.trim().split(/\s+/).filter(Boolean);
       if (!recordId) {
         const r = await fetch("/api/copy", {
           method: "POST",
@@ -165,7 +166,7 @@ export function TaskModal({
             标题: editTitle.trim(),
             总文案: editBody,
             正文: editBody,
-            标签: editTags.trim().split(/\s+/).filter(Boolean),
+            标签: tagList,
             项目名: editName.trim() || projectName,
           }),
         });
@@ -181,13 +182,21 @@ export function TaskModal({
               标题: editTitle.trim(),
               总文案: editBody,
               正文: editBody,
-              标签: editTags.trim().split(/\s+/).filter(Boolean),
+              标签: tagList,
             },
           }),
         });
         const j = await r.json();
         if (!j.ok) throw new Error(j.error);
       }
+
+      // 同步把原文链接写到信息图库（所有卡共享）
+      const sourceUrl = editSourceUrl.trim();
+      await fetch(`/api/tasks/${taskId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_name: projectName, source_url: sourceUrl }),
+      });
       setCopyTitle(editTitle.trim());
       setCopyText(editBody);
       setCopyTags(editTags.trim());
@@ -553,6 +562,12 @@ export function TaskModal({
                   value={editTags}
                   onChange={(e) => setEditTags(e.target.value)}
                   placeholder="标签（空格分隔）"
+                  className="w-full bg-creamLight border border-ink px-3 py-2 mt-2 font-mono text-[12px]"
+                />
+                <input
+                  value={editSourceUrl}
+                  onChange={(e) => setEditSourceUrl(e.target.value)}
+                  placeholder="原文链接 https://..."
                   className="w-full bg-creamLight border border-ink px-3 py-2 mt-2 font-mono text-[12px]"
                 />
               </div>
