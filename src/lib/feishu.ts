@@ -74,17 +74,41 @@ export interface Card {
 }
 
 export async function listCards(): Promise<Card[]> {
-  const data = await bitable(
-    `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_GRAPHS}/records?page_size=100`
-  );
-  return data.items as Card[];
+  const all: Card[] = [];
+  let pageToken: string | undefined = undefined;
+  let pageNum = 0;
+  do {
+    pageNum++;
+    const params = new URLSearchParams({ page_size: "100" });
+    if (pageToken) params.set("page_token", pageToken);
+    const data = await bitable(
+      `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_GRAPHS}/records?${params.toString()}`
+    );
+    const items = (data.items as Card[]) || [];
+    all.push(...items);
+    console.log(`[listCards] page ${pageNum}: ${items.length} cards (total=${all.length}, has_more=${data.has_more})`);
+    pageToken = data.has_more ? data.page_token : undefined;
+  } while (pageToken);
+  return all;
 }
 
 export async function listCopy(): Promise<Card[]> {
-  const data = await bitable(
-    `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_COPY}/records?page_size=100`
-  );
-  return data.items as Card[];
+  const all: Card[] = [];
+  let pageToken: string | undefined = undefined;
+  let pageNum = 0;
+  do {
+    pageNum++;
+    const params = new URLSearchParams({ page_size: "100" });
+    if (pageToken) params.set("page_token", pageToken);
+    const data = await bitable(
+      `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_COPY}/records?${params.toString()}`
+    );
+    const items = (data.items as Card[]) || [];
+    all.push(...items);
+    console.log(`[listCopy] page ${pageNum}: ${items.length} copy (total=${all.length}, has_more=${data.has_more})`);
+    pageToken = data.has_more ? data.page_token : undefined;
+  } while (pageToken);
+  return all;
 }
 
 export async function getAttachmentDownloadUrl(recordId: string, fileToken: string): Promise<string> {
@@ -140,11 +164,19 @@ export async function deleteCopy(recordId: string): Promise<void> {
 }
 
 export async function nextAutoNumber(taskId: number): Promise<number> {
-  const data = await bitable(
-    `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_GRAPHS}/records?page_size=100&fields=task_id`
-  );
+  const all: Card[] = [];
+  let pageToken: string | undefined = undefined;
+  do {
+    const params = new URLSearchParams({ page_size: "100", fields: "task_id" });
+    if (pageToken) params.set("page_token", pageToken);
+    const data = await bitable(
+      `/apps/${BITABLE_BASE_TOKEN}/tables/${TABLE_GRAPHS}/records?${params.toString()}`
+    );
+    all.push(...((data.items as Card[]) || []));
+    pageToken = data.has_more ? data.page_token : undefined;
+  } while (pageToken);
   let max = 0;
-  for (const r of data.items) {
+  for (const r of all) {
     const v = Number(r.fields.task_id);
     if (v > max) max = v;
   }
