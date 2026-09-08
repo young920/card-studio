@@ -189,7 +189,7 @@ export interface Task {
   project_name: string;
   cards: Card[];
   copy?: Card;
-  createdAt: number; // max(创建日期) across cards, used for newest/oldest sort
+  createdAt: string; // 优先级: max(创建日期) → max(record_id 字典序), used for newest/oldest sort
 }
 
 export function groupIntoTasks(graphCards: Card[], copyCards: Card[]): Task[] {
@@ -197,13 +197,19 @@ export function groupIntoTasks(graphCards: Card[], copyCards: Card[]): Task[] {
   for (const c of graphCards) {
     const tid = Number(c.fields.task_id);
     if (!tid) continue;
-    const created = Number(c.fields.创建日期) || 0;
+    // 优先级: 创建日期 (ms 时间戳) → record_id 字典序 (飞书 record_id 递增 == 插入时间)
+    // 有些老 task 的创建日期字段为空,record_id 永远不为空、作 fallback
+    // 统一编码为 string: 时间戳 toString() 后字典序 == 数值序
+    const byField = c.fields.创建日期 ? String(Number(c.fields.创建日期)) : "";
+    const byRecord = c.record_id || "";
+    const created = byField || byRecord; // 空串 || 串 => 取非空那个
     if (!byTask.has(tid)) {
       byTask.set(tid, { task_id: tid, project_name: c.fields.项目名 || "(未命名)", cards: [], copy: undefined, createdAt: created });
     }
     const t = byTask.get(tid)!;
     t.cards.push(c);
-    if (created > t.createdAt) t.createdAt = created;
+    // record_id 字典序可能 > 数字时间戳 string, 但这里是按“升序取最大”
+    if (created.localeCompare(t.createdAt) > 0) t.createdAt = created;
   }
   for (const cp of copyCards) {
     const tid = Number(cp.fields.task_id);
@@ -214,8 +220,8 @@ export function groupIntoTasks(graphCards: Card[], copyCards: Card[]): Task[] {
   for (const t of byTask.values()) {
     t.cards.sort((a, b) => String(a.fields.卡号 || "").localeCompare(String(b.fields.卡号 || "")));
   }
-  // 默认按创建时间倒序 (与前端 sortBy=newest 含义一致)
-  return [...byTask.values()].sort((a, b) => b.createdAt - a.createdAt);
+  // 默认按 createdAt 倒序 (与前端 sortBy=newest 含义一致)
+  return [...byTask.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 /* ---- 附件下载（纯 fetch + ArrayBuffer，Edge 兼容）---- */

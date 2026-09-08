@@ -12,7 +12,7 @@ interface Task {
   project_name: string;
   cards: Card[];
   copy?: Card;
-  createdAt: number; // max(创建日期) across cards, used for newest/oldest sort
+  createdAt: string; // 优先级: max(创建日期) → max(record_id 字典序), used for newest/oldest sort
 }
 
 const STYLE_OPTIONS = ["Editorial Weekly", "Editorial Magazine", "Swiss", "Neo-Brutalist", "Newspaper", "Dialogue", "Paper Brief"];
@@ -253,9 +253,9 @@ export default function HomePage() {
     const arr = [...tasks];
     switch (sortBy) {
       case "newest":
-        return arr.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        return arr.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
       case "oldest":
-        return arr.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+        return arr.sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
       case "name":
         return arr.sort((a, b) => a.project_name.localeCompare(b.project_name, "zh-CN"));
       case "cards":
