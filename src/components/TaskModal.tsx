@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ImageLightbox } from "./ImageLightbox";
 
 interface CardInfo {
   record_id: string;
@@ -62,6 +63,9 @@ export function TaskModal({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [settingCover, setSettingCover] = useState(false);
 
+  // lightbox state
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+
   useEffect(() => {
     refreshAll();
   }, [taskId]);
@@ -105,13 +109,14 @@ export function TaskModal({
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (editMode !== "view") return;
+      if (lightboxOpen) return; // lightbox 自己处理键盘
       if (e.key === "Escape") onClose();
       if (cards && e.key === "ArrowRight") setActiveIdx((i) => Math.min(i + 1, cards.length - 1));
       if (cards && e.key === "ArrowLeft") setActiveIdx((i) => Math.max(i - 1, 0));
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [cards, onClose, editMode]);
+  }, [cards, onClose, editMode, lightboxOpen]);
 
   async function handleCopy() {
     const fullText = `${copyTitle}\n\n${copyText}\n\n${copyTags}`.trim();
@@ -444,11 +449,21 @@ export function TaskModal({
                   </div>
                 </>
               ) : (
-                <img
-                  src={active.url}
-                  alt={active.topic}
-                  className="w-full max-h-[70vh] object-contain"
-                />
+                <button
+                  type="button"
+                  onClick={() => setLightboxOpen(true)}
+                  className="block w-full cursor-zoom-in group/lightbox relative"
+                  title="点击放大查看"
+                >
+                  <img
+                    src={active.url}
+                    alt={active.topic}
+                    className="w-full max-h-[70vh] object-contain"
+                  />
+                  <span className="absolute top-2 right-2 px-2 py-1 bg-ink/70 text-cream text-[10px] font-mono rounded opacity-0 group-hover/lightbox:opacity-100 transition pointer-events-none">
+                    🔍 点击放大
+                  </span>
+                </button>
               )}
               <button
                 className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-cream text-ink flex items-center justify-center hover:bg-brick hover:text-cream transition"
@@ -700,6 +715,20 @@ export function TaskModal({
               </>
             ) : null}
           </div>
+        {lightboxOpen && cards && cards.length > 0 && active && (
+            <ImageLightbox
+              images={cards
+                .filter((c) => !c.is_video && c.url)
+                .map((c) => ({ url: c.url, card_no: c.card_no, topic: c.topic }))}
+              startIdx={Math.max(
+                0,
+                cards
+                  .filter((c) => !c.is_video && c.url)
+                  .findIndex((c) => c.record_id === active!.record_id)
+              )}
+              onClose={() => setLightboxOpen(false)}
+            />
+          )}
         </div>
       </div>
     </div>
